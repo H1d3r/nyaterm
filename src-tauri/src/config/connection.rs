@@ -541,6 +541,9 @@ pub enum ConnectionType {
         agent_forwarding_config: Option<SshAgentForwardingConfig>,
         #[serde(default)]
         encoding: String,
+        /// Allow sanitized remote OSC 0/2 titles to decorate this saved SSH tab.
+        #[serde(default, skip_serializing_if = "is_false")]
+        dynamic_tab_title: bool,
     },
     LocalTerminal {
         #[serde(default)]
@@ -553,6 +556,10 @@ pub enum ConnectionType {
         ai_execution_profile: AiExecutionProfile,
         #[serde(default)]
         encoding: String,
+        /// When true, the tab label follows the session's dynamic window
+        /// title (OSC 0/2) / cwd instead of the static connection name.
+        #[serde(default, skip_serializing_if = "is_false")]
+        dynamic_tab_title: bool,
     },
     Telnet {
         host: String,
@@ -1645,6 +1652,7 @@ mod tests {
                 policy: SshAgentForwardingPolicy::default(),
             }),
             encoding: String::new(),
+            dynamic_tab_title: false,
         };
 
         let error = validate_ssh_agent_settings(&config).expect_err("endpoint limit");
@@ -1695,6 +1703,7 @@ mod tests {
                 policy: SshAgentForwardingPolicy::default(),
             }),
             encoding: String::new(),
+            dynamic_tab_title: false,
         };
         assert!(validate_ssh_agent_settings(&config).is_err());
     }
@@ -1740,6 +1749,7 @@ mod tests {
                 policy: SshAgentForwardingPolicy::default(),
             }),
             encoding: String::new(),
+            dynamic_tab_title: false,
         };
 
         let error = validate_ssh_agent_settings(&config).expect_err("duplicate endpoint");
@@ -1772,6 +1782,7 @@ mod tests {
                 policy: SshAgentForwardingPolicy::default(),
             }),
             encoding: String::new(),
+            dynamic_tab_title: false,
         };
 
         let error = validate_ssh_agent_settings(&config).expect_err("duplicate endpoint");
@@ -1794,6 +1805,7 @@ mod tests {
                 policy: SshAgentForwardingPolicy::Allowlist { fingerprints },
             }),
             encoding: String::new(),
+            dynamic_tab_title: false,
         };
 
         let duplicate = base(vec!["SHA256:test".to_string(), "SHA256:test".to_string()]);
@@ -2193,6 +2205,89 @@ mod tests {
             panic!("expected ssh connection");
         };
         assert!(!x11_forwarding);
+    }
+
+    #[test]
+    fn ssh_dynamic_title_defaults_off_and_round_trips_when_enabled() {
+        let legacy: SavedConnection = serde_json::from_value(serde_json::json!({
+            "id": "conn-legacy",
+            "name": "Legacy",
+            "type": "ssh",
+            "host": "example.com",
+            "port": 22,
+            "username": "root"
+        }))
+        .expect("legacy connection");
+        assert!(matches!(
+            legacy.config,
+            ConnectionType::Ssh {
+                dynamic_tab_title: false,
+                ..
+            }
+        ));
+
+        let enabled: SavedConnection = serde_json::from_value(serde_json::json!({
+            "id": "conn-enabled",
+            "name": "Enabled",
+            "type": "ssh",
+            "host": "example.com",
+            "port": 22,
+            "username": "root",
+            "dynamic_tab_title": true
+        }))
+        .expect("enabled connection");
+        assert!(matches!(
+            enabled.config,
+            ConnectionType::Ssh {
+                dynamic_tab_title: true,
+                ..
+            }
+        ));
+        let serialized = serde_json::to_value(enabled).expect("serialize connection");
+        assert_eq!(
+            serialized.get("dynamic_tab_title"),
+            Some(&serde_json::json!(true))
+        );
+    }
+
+    #[test]
+    fn local_dynamic_title_defaults_off_and_round_trips_when_enabled() {
+        let legacy: SavedConnection = serde_json::from_value(serde_json::json!({
+            "id": "local-legacy",
+            "name": "Legacy Local",
+            "type": "local_terminal",
+            "shell_path": "powershell.exe"
+        }))
+        .expect("legacy local connection");
+        assert!(matches!(
+            legacy.config,
+            ConnectionType::LocalTerminal {
+                dynamic_tab_title: false,
+                ..
+            }
+        ));
+
+        let enabled: SavedConnection = serde_json::from_value(serde_json::json!({
+            "id": "local-enabled",
+            "name": "Enabled Local",
+            "type": "local_terminal",
+            "shell_path": "powershell.exe",
+            "dynamic_tab_title": true
+        }))
+        .expect("enabled local connection");
+        assert!(matches!(
+            enabled.config,
+            ConnectionType::LocalTerminal {
+                dynamic_tab_title: true,
+                ..
+            }
+        ));
+        assert_eq!(
+            serde_json::to_value(enabled)
+                .expect("serialize local connection")
+                .get("dynamic_tab_title"),
+            Some(&serde_json::json!(true))
+        );
     }
 
     #[test]

@@ -143,9 +143,14 @@ import {
   findSessionPaneById,
   findTabBySessionId,
   getActivePane,
+  getActiveSessionTabDisplayName,
   getReleasedSessionIds,
-  getTabDisplayName,
 } from "./lib/workspaceTabs";
+import {
+  getDynamicTitle,
+  startDynamicTitles,
+  useDynamicTitles,
+} from "./lib/dynamicTabTitles";
 import type {
   AppSettings,
   AssetMetadata,
@@ -176,6 +181,12 @@ function eventTargetsCurrentWindow(targetWindowLabel?: string | null) {
 /** Root layout: header, activity bars, sidebars, terminal area, dialogs. */
 function App() {
   useMacSelectionGuard();
+  // Keep dynamic session titles (local PTY shell integration) flowing for the
+  // main window's tab labels and window title.
+  const dynamicTitles = useDynamicTitles();
+  useEffect(() => {
+    startDynamicTitles();
+  }, []);
 
   const {
     tabs,
@@ -775,7 +786,9 @@ function App() {
   }, [handleOpenPanel]);
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? null;
-  const activeTabName = activeTab ? getTabDisplayName(activeTab).trim() : "";
+  const activeTabName = activeTab
+    ? getActiveSessionTabDisplayName(activeTab, getDynamicTitle).trim()
+    : "";
   const windowTitle = activeTabName ? `${activeTabName} - NyaTerm` : "NyaTerm";
   const activePane = activeTab ? getActivePane(activeTab) : null;
   const activeConnection = activePane?.connectionId
@@ -1500,7 +1513,7 @@ function App() {
   const handleUpdateWindowSplitRatio = useCallback((splitId: string, ratio: number) => {
     setTerminalWindows((current) =>
       current ? updateTerminalWindowSplitRatio(current, splitId, ratio) : current,
-    );
+      );
   }, []);
 
   const handleActivatePane = useCallback(
@@ -2987,7 +3000,12 @@ function App() {
         owner_window_label: session?.owner_window_label ?? null,
         ai_execution_profile: session?.ai_execution_profile ?? "auto",
         injection_active: session?.injection_active ?? false,
-        remote_file_browser_enabled: session?.remote_file_browser_enabled ?? false,
+        dynamic_title_enabled: session?.dynamic_title_enabled ?? false,
+        dynamic_title_integration_active:
+          session?.dynamic_title_integration_active ?? false,
+        trusted_initial_title: session?.trusted_initial_title ?? null,
+        remote_file_browser_enabled:
+          session?.remote_file_browser_enabled ?? false,
         remote_stats_enabled: session?.remote_stats_enabled ?? false,
         ssh_profile: session?.ssh_profile ?? null,
       });
@@ -3220,7 +3238,11 @@ function App() {
             targetsById.set(pane.sessionId, {
               id: pane.sessionId,
               name: pane.name,
-              tabName: getTabDisplayName(tab),
+              tabName: getActiveSessionTabDisplayName(
+                tab,
+                (sessionId) =>
+                  dynamicTitles.get(sessionId ?? "")?.effectiveTitle ?? null,
+              ),
               type: pane.type,
               ownerWindowLabel: currentWindowLabel,
             });
@@ -3244,7 +3266,7 @@ function App() {
     }
 
     return [...targetsById.values()];
-  }, [liveSessionsById, tabsById, terminalWindows]);
+  }, [liveSessionsById, tabsById, terminalWindows, dynamicTitles]);
 
   const activeBottomPanel = uiConfig.show_serial_send_panel
     ? "serialSend"
@@ -3270,14 +3292,18 @@ function App() {
           name: pane.name,
           sessionType: pane.type,
           connectionName: connection?.name,
-          tabName: getTabDisplayName(tab),
+          tabName: getActiveSessionTabDisplayName(
+            tab,
+            (sessionId) =>
+              dynamicTitles.get(sessionId ?? "")?.effectiveTitle ?? null,
+          ),
           connecting: pane.connecting,
           connectError: pane.connectError,
         });
       }
     }
     return sessions;
-  }, [savedConnections, tabs]);
+  }, [savedConnections, tabs, dynamicTitles]);
 
   const handleCloseSessionQuickSwitcher = useCallback(() => {
     setShowSessionQuickSwitcher(false);

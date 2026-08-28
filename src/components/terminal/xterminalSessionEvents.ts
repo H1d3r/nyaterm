@@ -75,6 +75,8 @@ interface CreateXTerminalSessionEventsParams {
   ) => void;
   zmodemHandler: ZmodemHandler;
   replayPendingWakeEvents: () => void;
+  settleOutputAfterAttach: () => Promise<boolean>;
+  flushPendingDynamicTitle: () => void;
 }
 
 export function createXTerminalSessionEvents({
@@ -111,8 +113,12 @@ export function createXTerminalSessionEvents({
   logHibernation,
   zmodemHandler,
   replayPendingWakeEvents,
+  settleOutputAfterAttach,
+  flushPendingDynamicTitle,
 }: CreateXTerminalSessionEventsParams) {
   let disposed = false;
+  let retryTimer: number | null = null;
+  let resolveRetryWait: (() => void) | null = null;
   const unlisteners: UnlistenFn[] = [];
 
   const addUnlistener = (unlisten: UnlistenFn) => {
@@ -124,7 +130,13 @@ export function createXTerminalSessionEvents({
     return true;
   };
 
-  const setup = async () => {
+  const disposeRegisteredListeners = () => {
+    for (const unlisten of unlisteners.splice(0)) {
+      unlisten();
+    }
+  };
+
+  const setupOnce = async () => {
     const nextOutputUnlisten = await listen<TerminalOutputPayload>(
       `terminal-output-${sessionId}`,
       (event) => {
@@ -283,6 +295,13 @@ export function createXTerminalSessionEvents({
     try {
       await initialReplayPromise.catch(() => {});
       await invoke("attach_session", { sessionId });
+      // The backend acknowledgement means its pending payload was emitted,
+      // not that xterm has parsed it yet. Drain the renderer queue before
+      // publishing the settled title/cwd snapshot.
+      const replaySettled = await settleOutputAfterAttach();
+      if (!replaySettled) {
+        throw new Error("Timed out draining terminal output after attach");
+      }
       detachedHibernateEpochRef.current = null;
       if (
         hibernationPhaseRef.current === "waking" ||
@@ -293,6 +312,7 @@ export function createXTerminalSessionEvents({
         });
       }
       hibernationPhaseRef.current = "idle";
+      flushPendingDynamicTitle();
       updateOutputDrainMode();
     } catch (error) {
       hibernationPhaseRef.current = "failed";
@@ -306,13 +326,63 @@ export function createXTerminalSessionEvents({
     }
   };
 
+  const setup = async () => {
+    const maxAttempts = 3;
+    let recoveryDelayMs = 5_000;
+    for (let attempt = 1; !disposed; attempt += 1) {
+      try {
+        await setupOnce();
+        return;
+      } catch (error) {
+        disposeRegisteredListeners();
+        if (disposed) return;
+
+        const burstAttempt = ((attempt - 1) % maxAttempts) + 1;
+        const exhaustedBurst = burstAttempt === maxAttempts;
+        if (exhaustedBurst) {
+          hibernationPhaseRef.current = "failed";
+          logHibernation(
+            "fail",
+            "Failed to register terminal session listeners; retrying slowly while backend output remains detached",
+            {
+              reason: "listener_setup",
+              attempts: attempt,
+              retry_delay_ms: recoveryDelayMs,
+            },
+            error,
+          );
+          enterDisconnectedStateIfAttachSessionMissing(error);
+        }
+
+        const delayMs = exhaustedBurst ? recoveryDelayMs : 100 * burstAttempt;
+        if (exhaustedBurst) {
+          recoveryDelayMs = Math.min(recoveryDelayMs * 2, 30_000);
+        }
+        await new Promise<void>((resolve) => {
+          resolveRetryWait = resolve;
+          retryTimer = window.setTimeout(() => {
+            retryTimer = null;
+            resolveRetryWait = null;
+            resolve();
+          }, delayMs);
+        });
+        if (disposed) return;
+      }
+    }
+  };
+
   return {
     setup,
     dispose: () => {
       disposed = true;
-      for (const unlisten of unlisteners.splice(0)) {
-        unlisten();
+      if (retryTimer !== null) {
+        window.clearTimeout(retryTimer);
+        retryTimer = null;
       }
+      resolveRetryWait?.();
+      resolveRetryWait = null;
+      disposeRegisteredListeners();
+      flushPendingDynamicTitle();
     },
   };
 }

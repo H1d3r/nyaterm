@@ -2423,7 +2423,8 @@ mod tests {
     use crate::config::{AiExecutionProfile, ProxySettings, SftpSettings};
     use crate::core::ssh::{SshAuth, SshConfig};
     use crate::core::{
-        SessionHandle, SessionInfo, SessionManager, SessionType, session_command_channel,
+        DynamicTitleCapabilities, SessionHandle, SessionInfo, SessionManager, SessionType,
+        session_command_channel,
     };
     use std::fs;
     use std::path::PathBuf;
@@ -2459,6 +2460,7 @@ mod tests {
             terminal_type: Default::default(),
             sftp: SftpSettings::default(),
             encoding: "UTF-8".to_string(),
+            dynamic_tab_title: false,
         }
     }
 
@@ -2610,14 +2612,16 @@ mod tests {
                     owner_window_label: None,
                     ai_execution_profile: AiExecutionProfile::Posix,
                     injection_active: true,
+                    dynamic_title_capabilities: DynamicTitleCapabilities::default(),
                     remote_file_browser_enabled: false,
                     remote_stats_enabled: true,
                     ssh_profile: None,
                 },
                 cmd_tx,
+                startup_input_barrier: None,
                 ssh_config: None,
                 ssh_handle: None,
-                cwd: Arc::new(Mutex::new(None)),
+                cwd: Arc::new(Mutex::new(Default::default())),
                 remote_fs: None,
             })
             .await;

@@ -1,4 +1,8 @@
 import type { Terminal } from "@xterm/xterm";
+import {
+  pauseDynamicTitlePublication,
+  resumeDynamicTitlePublication,
+} from "@/lib/dynamicTabTitles";
 import { invoke } from "@/lib/invoke";
 import type { TerminalReconnectSnapshot } from "@/lib/terminalReconnectHistory";
 import { XTERM_PERFORMANCE_CONFIG } from "@/lib/xtermPerformance";
@@ -153,13 +157,18 @@ export function createXTerminalHibernationController({
       await invoke("attach_session", { sessionId });
       detachedHibernateEpochRef.current = null;
       hibernationPhaseRef.current = "idle";
+      resumeDynamicTitlePublication(sessionId);
       logHibernation("rollback", "Rolled back detached terminal renderer", {
         reason,
         epoch,
       });
     } catch (error) {
-      if (enterDisconnectedStateIfAttachSessionMissing(error)) return;
+      if (enterDisconnectedStateIfAttachSessionMissing(error)) {
+        resumeDynamicTitlePublication(sessionId);
+        return;
+      }
       hibernationPhaseRef.current = "failed";
+      resumeDynamicTitlePublication(sessionId);
       logHibernation(
         "fail",
         "Failed to roll back detached terminal renderer",
@@ -228,6 +237,7 @@ export function createXTerminalHibernationController({
 
     hibernationPhaseRef.current = "preparing";
     hibernationPendingRef.current = true;
+    pauseDynamicTitlePublication(sessionId);
     logHibernation("start", "Starting terminal renderer hibernation", {
       epoch,
     });
@@ -265,6 +275,7 @@ export function createXTerminalHibernationController({
       }
       if (!drainedBeforeDetach) {
         hibernationPhaseRef.current = "idle";
+        resumeDynamicTitlePublication(sessionId);
         logHibernation(
           "drain_timeout",
           "Timed out draining terminal output before hibernation",
@@ -369,6 +380,9 @@ export function createXTerminalHibernationController({
       ) {
         hibernationPhaseRef.current = "idle";
       }
+      if (hibernationPhaseRef.current === "idle") {
+        resumeDynamicTitlePublication(sessionId);
+      }
     }
   };
 
@@ -398,6 +412,7 @@ export function createXTerminalHibernationController({
     if (phase === "preparing") {
       hibernationPhaseRef.current = "idle";
       hibernationPendingRef.current = false;
+      resumeDynamicTitlePublication(sessionId);
       updateOutputDrainMode();
       scheduleHibernate();
       return;

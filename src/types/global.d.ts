@@ -1,5 +1,27 @@
 /** Type of terminal session. */
 export type SessionType = "SSH" | "Local" | "Telnet" | "Serial";
+
+/** Backend-authoritative, runtime-only cwd values safe for presentation/copy. */
+export type SessionCwdPresentation = {
+  title: string;
+  displayPath: string;
+  copyValue: string;
+  /** Host-native path for filesystem consumers; absent for presentation-only locations. */
+  operationalPath?: string | null;
+  copyAsUri: boolean;
+};
+
+export type SessionTitleSnapshot = {
+  /** Sanitized application-provided OSC 0/2 title. */
+  applicationTitle: string | null;
+  /** Validated Local cwd presentation; SSH cwd is never promoted. */
+  cwd: SessionCwdPresentation | null;
+  /** Final policy-resolved title, or null when static fallback should win. */
+  effectiveTitle: string | null;
+  /** Saved-connection policy copied into this runtime session. */
+  enabled: boolean;
+};
+
 export type WorkspaceSessionType = SessionType | "RDP" | "VNC";
 export type WorkspacePaneKind = "terminal" | "remote-desktop" | "file";
 export type PersistedWorkspacePaneKind = WorkspacePaneKind | "rdp";
@@ -73,8 +95,14 @@ export interface SessionInfo {
   connected: boolean;
   owner_window_label?: string | null;
   ai_execution_profile: AIExecutionProfile;
-  /** True when backend terminal-path tracking is available for this session. */
+  /** True when backend shell command-confirmation integration is active. */
   injection_active: boolean;
+  /** Whether application/remote dynamic titles may be promoted. */
+  dynamic_title_enabled: boolean;
+  /** Whether the selected shell received NyaTerm dynamic-title/cwd hooks. */
+  dynamic_title_integration_active: boolean;
+  /** Trusted resolved Windows executable identity for initial ConPTY filtering. */
+  trusted_initial_title?: string | null;
   /** True when the remote file browser is enabled for this session. */
   remote_file_browser_enabled: boolean;
   /** True when Linux-style remote resource stats are enabled for this session. */
@@ -213,6 +241,7 @@ export interface SshConfig {
   terminal_type?: SshTerminalType;
   sftp?: SftpSettings;
   encoding?: string;
+  dynamic_tab_title?: boolean;
 }
 
 /** SSH authentication: none, password, private key (PEM content), or SSH Agent. */
@@ -497,6 +526,8 @@ export interface SavedConnection {
   shell_path?: string;
   shell_args?: string;
   working_dir?: string;
+  /** Show the session's live window title / cwd as the tab label. */
+  dynamic_tab_title?: boolean;
   /** Legacy saved value; runtime sessions now resolve the effective AI execution profile automatically. */
   ai_execution_profile?: AIExecutionProfile;
   /** Serial fields (present when type === "serial"). */
