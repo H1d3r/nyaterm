@@ -292,9 +292,14 @@ export function createXTerminalSessionEvents({
 
     replayPendingWakeEvents();
 
+    let backendAttached = false;
     try {
       await initialReplayPromise.catch(() => {});
       await invoke("attach_session", { sessionId });
+      backendAttached = true;
+      // Attachment has completed even if the renderer drain below times out.
+      // Clear the detached epoch now so cleanup cannot issue a duplicate attach.
+      detachedHibernateEpochRef.current = null;
       // The backend acknowledgement means its pending payload was emitted,
       // not that xterm has parsed it yet. Drain the renderer queue before
       // publishing the settled title/cwd snapshot.
@@ -302,7 +307,6 @@ export function createXTerminalSessionEvents({
       if (!replaySettled) {
         throw new Error("Timed out draining terminal output after attach");
       }
-      detachedHibernateEpochRef.current = null;
       if (
         hibernationPhaseRef.current === "waking" ||
         hibernationPhaseRef.current === "hibernated"
@@ -319,10 +323,22 @@ export function createXTerminalSessionEvents({
       logHibernation(
         "fail",
         "Failed to attach backend output after terminal wake",
-        { reason: "terminal_ready" },
+        { reason: "terminal_ready", backend_attached: backendAttached },
         error,
       );
-      enterDisconnectedStateIfAttachSessionMissing(error);
+      const sessionMissing = enterDisconnectedStateIfAttachSessionMissing(error);
+      if (!backendAttached && !sessionMissing) {
+        // The backend is still detached, so let setup retry without publishing
+        // a title from an unsettled renderer.
+        throw error;
+      }
+      if (sessionMissing) {
+        detachedHibernateEpochRef.current = null;
+      }
+      // Once the backend is attached, a renderer-drain timeout must not leave
+      // dynamic titles frozen for the rest of the mounted session.
+      flushPendingDynamicTitle();
+      updateOutputDrainMode();
     }
   };
 
@@ -382,7 +398,6 @@ export function createXTerminalSessionEvents({
       resolveRetryWait?.();
       resolveRetryWait = null;
       disposeRegisteredListeners();
-      flushPendingDynamicTitle();
     },
   };
 }
