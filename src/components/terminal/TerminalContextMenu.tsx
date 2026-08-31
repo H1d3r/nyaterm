@@ -3,6 +3,7 @@ import type { Terminal } from "@xterm/xterm";
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  MdAddCircleOutline,
   MdAutoAwesome,
   MdClearAll,
   MdContentCopy,
@@ -26,7 +27,7 @@ import { writeClipboardText } from "@/lib/clipboard";
 import { normalizeTerminalRightClickAction } from "@/lib/interactionSettings";
 import { invoke } from "@/lib/invoke";
 import { sendTerminalClearInput } from "@/lib/terminalControlInput";
-import { openSettings } from "@/lib/windowManager";
+import { openQuickCommand, openSettings } from "@/lib/windowManager";
 import type { RecordingMode, RecordingStatus, SearchEngine } from "@/types/global";
 import TranslationDialog from "../dialog/terminal/TranslationDialog";
 import { type QuickIconDef, SEARCH_ICONS } from "../icons";
@@ -260,6 +261,20 @@ export default function TerminalContextMenu({
                 {t("terminalCtx.find")}
                 <ContextMenuShortcut>{dk("terminal.find")}</ContextMenuShortcut>
               </ContextMenuItem>
+              {ctxSelection.text.trim().length > 0 && (
+                <ContextMenuItem
+                  onClick={() =>
+                    openQuickCommand(
+                      JSON.stringify({
+                        command: ctxSelection.text.trim().slice(0, 10000),
+                      }),
+                    )
+                  }
+                >
+                  <MdAddCircleOutline className="text-[0.875rem] text-muted-foreground mr-2" />
+                  {t("terminalCtx.saveAsQuickCommand")}
+                </ContextMenuItem>
+              )}
               <ContextMenuSub>
                 <ContextMenuSubTrigger>
                   <MdTravelExplore className="text-[0.875rem] text-muted-foreground mr-2" />

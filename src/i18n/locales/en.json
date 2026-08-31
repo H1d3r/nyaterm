@@ -2792,6 +2792,7 @@
     "pasteSelectedText": "Paste Selected Text",
     "recordingLogs": "Recording Logs",
     "recordingSettings": "Settings...",
+    "saveAsQuickCommand": "Set as Quick Command",
     "searchCaseSensitive": "Case sensitive",
     "searchCurrentBuffer": "Current Buffer",
     "searchDeepHistory": "Deep History",
