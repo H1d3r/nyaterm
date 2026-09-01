@@ -266,7 +266,7 @@ export default function TerminalContextMenu({
                   onClick={() =>
                     openQuickCommand(
                       JSON.stringify({
-                        command: ctxSelection.text.trim().slice(0, 10000),
+                        command: ctxSelection.text,
                       }),
                     )
                   }
