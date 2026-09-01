@@ -459,6 +459,8 @@ export interface SftpSettings {
   cwd_follow_mode: SftpCwdFollowMode;
   shell_detection_timeout_ms: number;
   filename_encoding?: string;
+  /** Override SFTP single-file pipeline depth. Undefined means automatic. */
+  pipeline_depth?: number;
 }
 
 export type AlgorithmRisk = "modern" | "legacy" | "insecure";
@@ -1362,6 +1364,7 @@ export interface TerminalSettings {
 export interface TransferSettings {
   editor_type: "external" | "internal";
   internal_editor_display: "workspace" | "window";
+  internal_editor_font_size: number;
   download_threads: number;
   upload_threads: number;
   duplicate_strategy: string;
@@ -1391,15 +1394,12 @@ export type RiskLevel = "low" | "medium" | "high" | "critical";
 export type AIMode = "ask" | "agent";
 export type AIAgentCommandExecutionMode = "confirm_each" | "smart" | "auto";
 export type AIAgentKind = "nyaterm" | "codex" | "claude_code";
-export type AIPermissionMode = "observer" | "confirm" | "auto";
+export type AIPermissionMode = "observer" | "confirm" | "auto" | "full_access";
 export type ExternalMcpSessionScope = "current_window" | "all_sessions";
-export type ExternalMcpServerMode = "temporary" | "persistent";
 export interface ExternalMcpSettings {
   enabled: boolean;
   permission_mode: AIPermissionMode;
   session_scope: ExternalMcpSessionScope;
-  server_mode: ExternalMcpServerMode;
-  idle_timeout_minutes: number;
 }
 export type AIReasoningEffort =
   | "auto"
@@ -1535,8 +1535,21 @@ export interface McpApprovalRequest {
   capability: string;
   sessionId?: string | null;
   sessionName?: string | null;
+  connectionId?: string | null;
+  connectionName?: string | null;
   parameterSummary: string;
   risk: RiskLevel;
+}
+
+export interface McpSessionOpenRequest {
+  requestId: string;
+  connectionId: string;
+  targetWindowLabel: string;
+}
+
+export interface McpSessionOpenCancel {
+  requestId: string;
+  targetWindowLabel: string;
 }
 
 export interface AIContext {
@@ -1729,7 +1742,7 @@ export interface TunnelRuntimeState {
 export interface InteractionSettings {
   copy_on_select: boolean;
   allow_osc52_clipboard_write: boolean;
-  right_click_paste: boolean;
+  terminal_right_click_action: "none" | "menu" | "paste";
   terminal_zoom_enabled: boolean;
   command_suggestions_enabled: boolean;
   command_suggestion_min_chars: number;
@@ -1778,6 +1791,7 @@ export interface FileProperties {
   name: string;
   is_dir: boolean;
   is_symlink: boolean;
+  symlink_target?: string | null;
   size: number;
   permissions: string;
   owner: string;
@@ -1913,4 +1927,24 @@ export interface CloudSyncHistoryEntry {
   revision?: string | null;
   duration_ms?: number | null;
   message: string;
+}
+
+// ── SSH Config Import ─────────────────────────────────────────────────────────
+
+export interface SshConfigHop {
+  host: string;
+  port: number;
+  user: string;
+  isTarget: boolean;
+}
+
+export interface SshConfigEntry {
+  alias: string;
+  host: string;
+  port: number;
+  user: string;
+  identityFile?: string | null;
+  proxyJump?: string | null;
+  hops: SshConfigHop[];
+  hostKeyAlias?: string | null;
 }

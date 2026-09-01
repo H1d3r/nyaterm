@@ -270,9 +270,21 @@ export function installXTerminalKeyboardController({
     }
 
     if (terminal.hasSelection() && !getSmartCursorSelectedInputRange()) {
+      // The selection is preserved by design while typing (it is only cleared
+      // on mouse click), so input is sent with wasUserInput=false to skip
+      // xterm's selection clearing. That also skips xterm's scrollOnUserInput,
+      // so scroll back to the cursor explicitly to keep the prompt visible.
+      const inputPreservingSelection = (data: string) => {
+        markTerminalUserInput(terminal);
+        terminal.input(data, false);
+        const buffer = terminal.buffer.active;
+        if (buffer.baseY !== buffer.viewportY) {
+          terminal.scrollToBottom();
+        }
+      };
       if (directInputData) {
         e.preventDefault();
-        inputFromKeyboardController(directInputData);
+        inputPreservingSelection(directInputData);
         return false;
       }
       if (
@@ -282,12 +294,12 @@ export function installXTerminalKeyboardController({
         !e.altKey
       ) {
         e.preventDefault();
-        inputFromKeyboardController("\x7f");
+        inputPreservingSelection("\x7f");
         return false;
       }
       if (e.key === "Enter" && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
-        inputFromKeyboardController("\r");
+        inputPreservingSelection("\r");
         return false;
       }
       if (
@@ -298,7 +310,7 @@ export function installXTerminalKeyboardController({
         !e.shiftKey
       ) {
         e.preventDefault();
-        inputFromKeyboardController("\x1b[D");
+        inputPreservingSelection("\x1b[D");
         return false;
       }
       if (
@@ -309,7 +321,7 @@ export function installXTerminalKeyboardController({
         !e.shiftKey
       ) {
         e.preventDefault();
-        inputFromKeyboardController("\x1b[C");
+        inputPreservingSelection("\x1b[C");
         return false;
       }
       if (
@@ -320,7 +332,7 @@ export function installXTerminalKeyboardController({
         !e.shiftKey
       ) {
         e.preventDefault();
-        inputFromKeyboardController("\x1b[A");
+        inputPreservingSelection("\x1b[A");
         return false;
       }
       if (
@@ -331,7 +343,7 @@ export function installXTerminalKeyboardController({
         !e.shiftKey
       ) {
         e.preventDefault();
-        inputFromKeyboardController("\x1b[B");
+        inputPreservingSelection("\x1b[B");
         return false;
       }
       if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
@@ -366,65 +378,65 @@ export function installXTerminalKeyboardController({
         const keyLower = e.key.toLowerCase();
         if (ctrlCharMap[keyLower]) {
           e.preventDefault();
-          inputFromKeyboardController(ctrlCharMap[keyLower]);
+          inputPreservingSelection(ctrlCharMap[keyLower]);
           return false;
         }
         if (e.key === "ArrowLeft") {
           e.preventDefault();
-          inputFromKeyboardController("\x1b[1;5D");
+          inputPreservingSelection("\x1b[1;5D");
           return false;
         }
         if (e.key === "ArrowRight") {
           e.preventDefault();
-          inputFromKeyboardController("\x1b[1;5C");
+          inputPreservingSelection("\x1b[1;5C");
           return false;
         }
         if (e.key === "ArrowUp") {
           e.preventDefault();
-          inputFromKeyboardController("\x1b[1;5A");
+          inputPreservingSelection("\x1b[1;5A");
           return false;
         }
         if (e.key === "ArrowDown") {
           e.preventDefault();
-          inputFromKeyboardController("\x1b[1;5B");
+          inputPreservingSelection("\x1b[1;5B");
           return false;
         }
       }
       if ((e.altKey || e.metaKey) && !e.ctrlKey && !e.shiftKey) {
         if (e.key === "ArrowLeft") {
           e.preventDefault();
-          inputFromKeyboardController("\x1b[1;3D");
+          inputPreservingSelection("\x1b[1;3D");
           return false;
         }
         if (e.key === "ArrowRight") {
           e.preventDefault();
-          inputFromKeyboardController("\x1b[1;3C");
+          inputPreservingSelection("\x1b[1;3C");
           return false;
         }
         if (e.key === "ArrowUp") {
           e.preventDefault();
-          inputFromKeyboardController("\x1b[1;3A");
+          inputPreservingSelection("\x1b[1;3A");
           return false;
         }
         if (e.key === "ArrowDown") {
           e.preventDefault();
-          inputFromKeyboardController("\x1b[1;3B");
+          inputPreservingSelection("\x1b[1;3B");
           return false;
         }
         const keyLower = e.key.toLowerCase();
         if (keyLower === "b") {
           e.preventDefault();
-          inputFromKeyboardController("\x1bb");
+          inputPreservingSelection("\x1bb");
           return false;
         }
         if (keyLower === "f") {
           e.preventDefault();
-          inputFromKeyboardController("\x1bf");
+          inputPreservingSelection("\x1bf");
           return false;
         }
         if (keyLower === "d") {
           e.preventDefault();
-          inputFromKeyboardController("\x1bd");
+          inputPreservingSelection("\x1bd");
           return false;
         }
       }

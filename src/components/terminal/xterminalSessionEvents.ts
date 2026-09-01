@@ -27,6 +27,16 @@ interface ZmodemHandler {
   handle: (payload: ZmodemEventPayload) => void;
 }
 
+export async function replaySnapshotBeforeAttach(options: {
+  initialReplayPromise: Promise<void>;
+  replayPendingWakeEvents: () => void;
+  attachSession: () => Promise<void>;
+}) {
+  await options.initialReplayPromise.catch(() => {});
+  options.replayPendingWakeEvents();
+  await options.attachSession();
+}
+
 interface CreateXTerminalSessionEventsParams {
   sessionId: string;
   terminal: Terminal;
@@ -290,13 +300,16 @@ export function createXTerminalSessionEvents({
     );
     if (!addUnlistener(nextZmodemUnlisten)) return;
 
-    replayPendingWakeEvents();
-
     let backendAttached = false;
     try {
-      await initialReplayPromise.catch(() => {});
-      await invoke("attach_session", { sessionId });
-      backendAttached = true;
+      await replaySnapshotBeforeAttach({
+        initialReplayPromise,
+        replayPendingWakeEvents,
+        attachSession: async () => {
+          await invoke("attach_session", { sessionId });
+          backendAttached = true;
+        },
+      });
       // Attachment has completed even if the renderer drain below times out.
       // Clear the detached epoch now so cleanup cannot issue a duplicate attach.
       detachedHibernateEpochRef.current = null;

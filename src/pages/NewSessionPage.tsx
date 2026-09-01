@@ -104,6 +104,7 @@ function normalizeSftpSettings(value: SavedConnection["sftp"] | undefined): Sftp
     shell_detection_timeout_ms:
       value?.shell_detection_timeout_ms ?? DEFAULT_SFTP_SHELL_DETECTION_TIMEOUT_MS,
     filename_encoding: value?.filename_encoding || "",
+    pipeline_depth: value?.pipeline_depth,
   };
 }
 
@@ -359,6 +360,8 @@ export default function NewSessionPage() {
           setRdpDomain(found.domain || "");
           setPasswordId(found.auth?.password_id || "");
           setHasPassword(found.auth?.has_password || false);
+          setProxyId(found.network?.proxy_id || "");
+          setJumpHostId(found.network?.proxy_jump_id || "");
           setRdpUseNla(found.security?.use_nla ?? true);
           setRdpCertificatePolicy(found.security?.certificate_policy ?? "prompt");
           setRdpDisplayMode(

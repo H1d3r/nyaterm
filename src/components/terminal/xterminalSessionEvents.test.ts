@@ -17,7 +17,10 @@ import {
   resetDynamicTitlesForTests,
   resumeDynamicTitlePublication,
 } from "@/lib/dynamicTabTitles";
-import { createXTerminalSessionEvents } from "./xterminalSessionEvents";
+import {
+  createXTerminalSessionEvents,
+  replaySnapshotBeforeAttach,
+} from "./xterminalSessionEvents";
 
 function params(overrides: Record<string, unknown> = {}) {
   return {
@@ -220,5 +223,40 @@ describe("xterminalSessionEvents setup lifecycle", () => {
 
     expect(getDynamicTitle("ssh-1")).toBe("Production · After wake");
     wakeEvents.dispose();
+  });
+});
+
+function createDeferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((nextResolve) => {
+    resolve = nextResolve;
+  });
+  return { promise, resolve };
+}
+
+describe("replaySnapshotBeforeAttach", () => {
+  it("replays the snapshot before pending wake events and backend attach", async () => {
+    const replay = createDeferred();
+    const order: string[] = [];
+    const attachSession = vi.fn(async () => {
+      order.push("attach");
+    });
+    const restore = replaySnapshotBeforeAttach({
+      initialReplayPromise: replay.promise.then(() => {
+        order.push("replay");
+      }),
+      replayPendingWakeEvents: () => order.push("pending-wake"),
+      attachSession,
+    });
+
+    await Promise.resolve();
+    expect(attachSession).not.toHaveBeenCalled();
+    expect(order).toEqual([]);
+
+    replay.resolve();
+    await restore;
+
+    expect(order).toEqual(["replay", "pending-wake", "attach"]);
+    expect(attachSession).toHaveBeenCalledTimes(1);
   });
 });
