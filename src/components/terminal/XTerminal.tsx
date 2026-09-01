@@ -118,7 +118,20 @@ import type {
   PendingWakeEvent,
   XTermInternalTrimSource,
 } from "./xterminalInternalTypes";
-import { isSessionNotFoundError } from "./xterminalKeyboardInput";
+import {
+  createXTerminalDataOriginTracker,
+  isSessionNotFoundError,
+  resolveXTerminalDataOrigin,
+} from "./xterminalKeyboardInput";
+import {
+  markTerminalUserInput,
+  registerTerminalUserInputMarker,
+} from "@/lib/terminalControlInput";
+import { XTERM_SECURE_WINDOW_OPTIONS } from "@/lib/xtermSecurity";
+import {
+  publishApplicationTitle,
+  resumeDynamicTitlePublication,
+} from "@/lib/dynamicTabTitles";
 import {
   serializeTerminalSnapshot,
   writeTextInFrames,
@@ -500,6 +513,7 @@ export default function XTerminal({
             detachedHibernateEpochRef.current = null;
           }
           hibernationPhaseRef.current = "idle";
+          resumeDynamicTitlePublication(sessionIdRef.current);
           logHibernation(
             "rollback",
             "Rolled back detached renderer on component unmount",
@@ -511,6 +525,7 @@ export default function XTerminal({
         })
         .catch((error) => {
           hibernationPhaseRef.current = "failed";
+          resumeDynamicTitlePublication(sessionIdRef.current);
           logHibernation(
             "fail",
             "Failed to roll back detached renderer on component unmount",
@@ -761,6 +776,7 @@ export default function XTerminal({
       theme: { ...terminalThemeColors },
       allowTransparency: terminalTransparencyEnabled,
       allowProposedApi: true,
+      windowOptions: XTERM_SECURE_WINDOW_OPTIONS,
       vtExtensions: { kittyKeyboard: true },
     });
 
@@ -815,6 +831,84 @@ export default function XTerminal({
     terminal.loadAddon(unicodeGraphemesAddon);
     installTerminalImageAddon(terminal, { sessionId, sessionType });
     terminal.open(containerRef.current);
+
+    const coreService = (terminal as Terminal & XTermInternalTrimSource)._core
+      ?.coreService;
+    const canDistinguishTerminalResponses =
+      typeof coreService?.onUserInput === "function";
+    const inputOriginTracker = createXTerminalDataOriginTracker();
+    const userInputDisposable = coreService?.onUserInput?.(() => {
+      inputOriginTracker.markUserInput();
+    });
+    const unregisterUserInputMarker = registerTerminalUserInputMarker(
+      terminal,
+      () => inputOriginTracker.markUserInput(),
+    );
+    let fallbackFocusReport: "\x1b[I" | "\x1b[O" | null = null;
+    const fallbackUserInputEvents = [
+      "keydown",
+      "beforeinput",
+      "paste",
+      "compositionend",
+      "pointerdown",
+      "pointermove",
+      "pointerup",
+      "wheel",
+      "drop",
+    ] as const;
+    const markFallbackUserInput = (event: Event) => {
+      if (
+        typeof PointerEvent !== "undefined" &&
+        event instanceof PointerEvent &&
+        event.type === "pointermove" &&
+        event.buttons === 0
+      ) {
+        return;
+      }
+      if (
+        event.type === "compositionend" ||
+        (typeof KeyboardEvent !== "undefined" &&
+          event instanceof KeyboardEvent &&
+          event.keyCode === 229)
+      ) {
+        // xterm defers IME data with setTimeout(0), beyond this DOM event.
+        inputOriginTracker.markDeferredUserInput();
+      }
+      inputOriginTracker.beginUserInputEvent();
+      queueMicrotask(() => inputOriginTracker.endUserInputEvent());
+    };
+    const markFallbackFocusReport = (event: Event) => {
+      fallbackFocusReport = event.type === "focusin" ? "\x1b[I" : "\x1b[O";
+      queueMicrotask(() => {
+        fallbackFocusReport = null;
+      });
+    };
+    if (!canDistinguishTerminalResponses) {
+      for (const eventName of fallbackUserInputEvents) {
+        containerRef.current.addEventListener(
+          eventName,
+          markFallbackUserInput,
+          true,
+        );
+      }
+      containerRef.current.addEventListener(
+        "focusin",
+        markFallbackFocusReport,
+        true,
+      );
+      containerRef.current.addEventListener(
+        "focusout",
+        markFallbackFocusReport,
+        true,
+      );
+    }
+
+    const flushPendingDynamicTitle = () => {
+      resumeDynamicTitlePublication(sessionId);
+    };
+    const titleDisposable = terminal.onTitleChange((title) => {
+      publishApplicationTitle(sessionId, title);
+    });
 
     const trimDisposable = (
       terminal as Terminal & XTermInternalTrimSource
@@ -929,19 +1023,24 @@ export default function XTerminal({
       }
     };
 
-    const sendRawInput = (data: string, command: string | null) => {
+    const sendRawInput = (
+      data: string,
+      command: string | null,
+      origin: "keyboard" | "terminal_response" = "keyboard",
+    ) => {
       const peers = syncPeerSessionIdsRef.current;
-      if (peers && peers.length > 0) {
+      if (origin === "keyboard" && peers && peers.length > 0) {
         return sendSessionInputWithSync(sessionId, data, peers, {
           preview: null,
           registerSubmission: command,
+          origin,
         }).catch(() => {});
-      } else {
+      }
         return sendSessionInput(sessionId, data, {
           preview: null,
           registerSubmission: command,
+        origin,
         }).catch(() => {});
-      }
     };
 
     const canReconnectDisconnectedSession = () =>
@@ -1197,6 +1296,7 @@ export default function XTerminal({
       }
 
       const runPaste = () => {
+        markTerminalUserInput(terminal);
         terminal.paste(text);
         terminal.focus();
         requestAnimationFrame(() => {
@@ -1920,8 +2020,20 @@ export default function XTerminal({
       logHibernation,
       zmodemHandler,
       replayPendingWakeEvents,
+      settleOutputAfterAttach: () =>
+        flushFrameGateAndDrain("dynamic_title_attach"),
+      flushPendingDynamicTitle,
     });
-    const sessionSetupPromise = sessionEvents.setup();
+    const sessionSetupPromise = sessionEvents.setup().catch((error) => {
+      resumeDynamicTitlePublication(sessionId);
+      logger.error({
+        domain: "session.lifecycle",
+        event: "session_listener_setup_failed",
+        message: "Failed to initialize terminal session listeners",
+        ids: { session_id: sessionId },
+        error,
+      });
+    });
 
     const removePreviewListener = listenSessionInputPreview(
       sessionId,
@@ -1929,6 +2041,18 @@ export default function XTerminal({
     );
 
     const dataDisposable = terminal.onData((data) => {
+      const trackedOrigin = inputOriginTracker.consume();
+      const origin = resolveXTerminalDataOrigin(
+        trackedOrigin,
+        data,
+        canDistinguishTerminalResponses,
+        fallbackFocusReport,
+      );
+      if (data === fallbackFocusReport) fallbackFocusReport = null;
+      if (origin === "terminal_response") {
+        void sendRawInput(data, null, origin);
+        return;
+      }
       if (aiCapturingRef.current) return;
       if (hibernationPhaseRef.current !== "idle") {
         requestWake("input");
@@ -2207,6 +2331,7 @@ export default function XTerminal({
               detachedHibernateEpochRef.current = null;
             }
             hibernationPhaseRef.current = "idle";
+            resumeDynamicTitlePublication(sessionId);
             logHibernation(
               "rollback",
               "Rolled back detached renderer during cleanup",
@@ -2218,6 +2343,7 @@ export default function XTerminal({
           })
           .catch((error) => {
             hibernationPhaseRef.current = "failed";
+            resumeDynamicTitlePublication(sessionId);
             logHibernation(
               "fail",
               "Failed to roll back detached renderer during cleanup",
@@ -2237,6 +2363,28 @@ export default function XTerminal({
       pasteTextRef.current = () => {};
       resetCredentialAutofill();
 
+      if (!canDistinguishTerminalResponses) {
+        for (const eventName of fallbackUserInputEvents) {
+          containerEl.removeEventListener(
+            eventName,
+            markFallbackUserInput,
+            true,
+          );
+        }
+        containerEl.removeEventListener(
+          "focusin",
+          markFallbackFocusReport,
+          true,
+        );
+        containerEl.removeEventListener(
+          "focusout",
+          markFallbackFocusReport,
+          true,
+        );
+      }
+      unregisterUserInputMarker();
+      userInputDisposable?.dispose();
+      titleDisposable.dispose();
       oscDisposable.dispose();
       remoteColorOscGuardDisposable.dispose();
       clipboardOscDisposable.dispose();
@@ -2280,6 +2428,9 @@ export default function XTerminal({
         const reconnectSnapshot = captureReconnectSnapshot();
         preservedReconnectContentRef.current = reconnectSnapshot;
         snapshotRestoreController.begin(reconnectSnapshot);
+      }
+      if (!isHibernateRendererCleanup) {
+        resumeDynamicTitlePublication(sessionId);
       }
       terminal.dispose();
       terminalRef.current = null;

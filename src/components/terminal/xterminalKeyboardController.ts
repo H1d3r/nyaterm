@@ -7,7 +7,10 @@ import {
   matchesKeyEvent,
   resolveIndexedKeys,
 } from "@/lib/shortcutRegistry";
-import { sendTerminalClearInput } from "@/lib/terminalControlInput";
+import {
+  markTerminalUserInput,
+  sendTerminalClearInput,
+} from "@/lib/terminalControlInput";
 import {
   applyTerminalInputData,
   type TerminalInputState,
@@ -91,6 +94,11 @@ export function installXTerminalKeyboardController({
   syncSuggestionsWithInputState,
   lastSelectionRef,
 }: InstallXTerminalKeyboardControllerParams) {
+  const inputFromKeyboardController = (data: string) => {
+    markTerminalUserInput(terminal);
+    terminal.input(data, true);
+  };
+
   const getDirectInputDataFromKeyEvent = (e: KeyboardEvent) => {
     if (e.ctrlKey || e.metaKey || e.altKey) return null;
     if (e.key === "Dead" || e.key === "Process" || e.key === "Unidentified")
@@ -267,6 +275,7 @@ export function installXTerminalKeyboardController({
       // xterm's selection clearing. That also skips xterm's scrollOnUserInput,
       // so scroll back to the cursor explicitly to keep the prompt visible.
       const inputPreservingSelection = (data: string) => {
+        markTerminalUserInput(terminal);
         terminal.input(data, false);
         const buffer = terminal.buffer.active;
         if (buffer.baseY !== buffer.viewportY) {
@@ -511,7 +520,7 @@ export function installXTerminalKeyboardController({
     const ctrlPrintableInput = getCtrlPrintableCsiuInput(e);
     if (ctrlPrintableInput) {
       e.preventDefault();
-      terminal.input(ctrlPrintableInput, false);
+      inputFromKeyboardController(ctrlPrintableInput);
       return false;
     }
 

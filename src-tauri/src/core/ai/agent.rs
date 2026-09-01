@@ -201,7 +201,7 @@ async fn resolve_background_execution_target(
         SessionType::Local => {
             let cwd_arc = session.cwd.clone();
             drop(sessions);
-            let cwd = cwd_arc.lock().await.clone();
+            let cwd = cwd_arc.lock().await.safe_local_execution_cwd();
             Ok(BackgroundExecutionTarget::Local { cwd })
         }
         ref session_type => Ok(BackgroundExecutionTarget::Unsupported(session_type.clone())),
@@ -1465,7 +1465,9 @@ mod tests {
 
     #[tokio::test]
     async fn background_execution_rejects_unsupported_session_types() {
-        use crate::core::{SessionHandle, SessionInfo, session_command_channel};
+        use crate::core::{
+            DynamicTitleCapabilities, SessionHandle, SessionInfo, session_command_channel,
+        };
         use tokio::sync::Mutex;
 
         let manager = SessionManager::new();
@@ -1482,14 +1484,16 @@ mod tests {
                     owner_window_label: None,
                     ai_execution_profile: AiExecutionProfile::SendOnly,
                     injection_active: false,
+                    dynamic_title_capabilities: DynamicTitleCapabilities::default(),
                     remote_file_browser_enabled: false,
                     remote_stats_enabled: false,
                     ssh_profile: None,
                 },
                 cmd_tx,
+                startup_input_barrier: None,
                 ssh_config: None,
                 ssh_handle: None,
-                cwd: Arc::new(Mutex::new(None)),
+                cwd: Arc::new(Mutex::new(Default::default())),
                 remote_fs: None,
             })
             .await;

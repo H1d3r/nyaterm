@@ -4888,6 +4888,7 @@ dependencies = [
  "ironrdp",
  "keyring",
  "lazy_static",
+ "libc",
  "md-5 0.10.6",
  "notify",
  "nucleo-matcher",
