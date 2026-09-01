@@ -1333,6 +1333,7 @@ export interface TerminalSettings {
 export interface TransferSettings {
   editor_type: "external" | "internal";
   internal_editor_display: "workspace" | "window";
+  internal_editor_font_size: number;
   download_threads: number;
   upload_threads: number;
   duplicate_strategy: string;
