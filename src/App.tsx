@@ -31,6 +31,7 @@ import { useRemoteStats } from "./hooks/useRemoteStats";
 import { useSecurityPromptQueue } from "./hooks/useSecurityPromptQueue";
 import { useSessionRuntimeState } from "./hooks/useSessionRuntimeState";
 import { resolveDisplayKeys } from "./hooks/useShortcutMap";
+import { useFileEditorZoom } from "./hooks/useFileEditorZoom";
 import { useTerminalZoom } from "./hooks/useTerminalZoom";
 import { useTabStatusIndicators } from "./hooks/useUnreadTabs";
 import { AI_OPEN_EVENT, type AIOpenIntent } from "./lib/aiEvents";
@@ -2035,6 +2036,8 @@ function App() {
     appSettings.keybindings,
     appSettings.interaction.terminal_zoom_enabled,
   );
+
+  useFileEditorZoom(updateAppSettings);
 
   const handleOpenSettings = useCallback(() => {
     openSettings();
