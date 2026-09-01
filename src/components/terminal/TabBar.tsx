@@ -1314,6 +1314,7 @@ function TabBar({
             return;
           }
           onTabChange(tab.id);
+          focusOpenTabTerminal(tab);
         }}
         onDoubleClick={(event) => {
           if (
