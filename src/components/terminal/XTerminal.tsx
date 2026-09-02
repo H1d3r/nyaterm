@@ -70,6 +70,12 @@ import {
   registerTerminalReconnectCapture,
   type TerminalReconnectSnapshot,
 } from "@/lib/terminalReconnectHistory";
+import {
+  buildReconnectCwdStartupCommand,
+  carryOverSessionCwd,
+  recordSessionCwd,
+} from "@/lib/terminalSessionCwd";
+import { buildStartupCommandPayload } from "@/lib/appSessionFactory";
 import { TERMINAL_SEARCH_VISIBLE_MATCH_LIMIT } from "@/lib/terminalSearch";
 import type { AiCaptureEvent } from "@/types/global";
 import ActionLinkMenu from "./ActionLinkMenu";
@@ -499,6 +505,15 @@ export default function XTerminal({
       unlistenBag.dispose();
     };
   }, [hibernated, requestWake, sessionId]);
+
+  useEffect(() => {
+    const unlisten = listen<string>(`cwd-changed-${sessionId}`, (event) => {
+      recordSessionCwd(sessionId, event.payload);
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [sessionId]);
 
   useEffect(() => {
     return () => {
@@ -1071,6 +1086,15 @@ export default function XTerminal({
     const createReconnectedSession = () => {
       const connectionId = connectionIdRef.current;
       const temporaryConfig = temporaryConfigRef.current;
+      const settingsSnapshot = terminalAppSettingsRef.current;
+      const restoreCwdStartupCommand =
+        sessionTypeRef.current === "SSH" &&
+        (settingsSnapshot.terminal.reconnect_restore_cwd ?? true)
+          ? buildReconnectCwdStartupCommand(
+              sessionIdRef.current,
+              settingsSnapshot.interaction.duplicate_session_command_delay_ms,
+            )
+          : undefined;
 
       switch (sessionTypeRef.current) {
         case "Local":
@@ -1108,16 +1132,23 @@ export default function XTerminal({
           return invoke<string>("create_serial_session", { connectionId });
         default:
           if (connectionId) {
-            return invoke<string>("create_ssh_session", { connectionId });
+            return invoke<string>("create_ssh_session", {
+              connectionId,
+              startupCommand: buildStartupCommandPayload(restoreCwdStartupCommand),
+            });
           }
           assertTemporaryConfigMatchesSessionType();
           if (temporaryConfig?.protocol === "ssh") {
             const { protocol: _protocol, ...sshConfig } = temporaryConfig;
             return invoke<string>("create_temporary_ssh_session", {
               config: sshConfig,
+              startupCommand: buildStartupCommandPayload(restoreCwdStartupCommand),
             });
           }
-          return invoke<string>("create_ssh_session", { connectionId });
+          return invoke<string>("create_ssh_session", {
+            connectionId,
+            startupCommand: buildStartupCommandPayload(restoreCwdStartupCommand),
+          });
       }
     };
 
@@ -2075,6 +2106,7 @@ export default function XTerminal({
               preservedReconnectContentRef.current = reconnectSnapshot;
               snapshotRestoreController.begin(reconnectSnapshot);
               const oldSessionId = sessionIdRef.current;
+              carryOverSessionCwd(oldSessionId, newSessionId);
               disconnectedRef.current = false;
               disconnectedNoticeShownRef.current = false;
               disconnectedCloseRequestedRef.current = false;
