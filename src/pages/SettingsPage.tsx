@@ -110,7 +110,7 @@ function getCloudSyncValidationMessage(
 }
 
 export default function SettingsPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const app = useApp();
   const committedSettings = app.appSettings;
 
@@ -403,8 +403,11 @@ export default function SettingsPage() {
 
   const handleCancel = useCallback(async () => {
     discardDraftSettings();
-    await closeSettingsWindow();
-  }, [closeSettingsWindow, discardDraftSettings]);
+    const committedLanguage = committedSettings.ui.language || "en";
+    if (i18n.language !== committedLanguage) {
+      await i18n.changeLanguage(committedLanguage);
+    }
+  }, [committedSettings.ui.language, discardDraftSettings, i18n]);
 
   const requestClose = useCallback(() => {
     if (isDirty) {
