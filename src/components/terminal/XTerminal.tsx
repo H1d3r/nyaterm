@@ -517,8 +517,9 @@ export default function XTerminal({
       if (disposed) return;
       void invoke<string | null>("try_get_terminal_cwd", { sessionId }).then(
         (cwd) => {
-          if (disposed || cwdEventObserved || cwd === null) return;
-          recordSessionCwd(sessionId, cwd);
+          if (disposed || cwdEventObserved) return;
+          // A successful null snapshot is authoritative and clears a carried cwd.
+          recordSessionCwd(sessionId, cwd ?? "");
         },
         () => {},
       );

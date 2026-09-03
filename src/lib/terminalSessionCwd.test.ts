@@ -59,6 +59,47 @@ describe("buildReconnectCwdCommand", () => {
   it("supports unicode paths", () => {
     expect(buildReconnectCwdCommand("/home/用户")).toBe("cd '/home/用户'");
   });
+
+  it("decodes percent-encoded paths before replay", () => {
+    expect(buildReconnectCwdCommand("/opt/my%20dir")).toBe("cd '/opt/my dir'");
+  });
+
+  it("decodes percent-encoded unicode paths before replay", () => {
+    expect(buildReconnectCwdCommand("/home/%E7%94%A8%E6%88%B7")).toBe(
+      "cd '/home/用户'",
+    );
+  });
+
+  it("keeps a raw path when a percent sequence is malformed", () => {
+    expect(buildReconnectCwdCommand("/opt/100%")).toBe("cd '/opt/100%'");
+    expect(buildReconnectCwdCommand("/opt/a%zzb")).toBe("cd '/opt/a%zzb'");
+  });
+
+  it("preserves literal percent sequences from the NyaTerm emitter", () => {
+    expect(buildReconnectCwdCommand("/opt/100%25")).toBe("cd '/opt/100%'");
+    expect(buildReconnectCwdCommand("/opt/my%2520dir")).toBe(
+      "cd '/opt/my%20dir'",
+    );
+  });
+
+  it("returns null when decoding leaves a blank value", () => {
+    expect(buildReconnectCwdCommand("%20")).toBeNull();
+  });
+
+  it("escapes quotes revealed by percent-decoding", () => {
+    expect(buildReconnectCwdCommand("/home/o%27brien")).toBe(
+      "cd '/home/o'\\''brien'",
+    );
+  });
+
+  it("returns null for control characters revealed by percent-decoding", () => {
+    expect(buildReconnectCwdCommand("/tmp/a%00b")).toBeNull();
+    expect(buildReconnectCwdCommand("/tmp/a%0ab")).toBeNull();
+    expect(buildReconnectCwdCommand("/tmp/a%0db")).toBeNull();
+    expect(buildReconnectCwdCommand("/tmp/a%15b")).toBeNull();
+    expect(buildReconnectCwdCommand("/tmp/a%7fb")).toBeNull();
+    expect(buildReconnectCwdCommand("/tmp/a%C2%85b")).toBeNull();
+  });
 });
 
 describe("recordSessionCwd / getSessionCwd", () => {

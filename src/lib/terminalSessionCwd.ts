@@ -45,15 +45,25 @@ export function carryOverSessionCwd(fromSessionId: string, toSessionId: string) 
 const CONTROL_CHARS = /[\u0000-\u001F\u007F-\u009F]/;
 
 /**
- * Builds a `cd '<path>'` command for the given cwd. Returns null for
- * empty/blank values or paths containing any C0/C1/DEL control characters
- * (terminal line editing could otherwise erase the quoted prefix and inject
- * commands) so reconnect falls back to the default behavior.
+ * Builds a `cd '<path>'` command for the given cwd. The payload may arrive
+ * percent-encoded (legacy OSC 7 shell integrations) or raw (NyaTerm's own
+ * emitter escapes literal '%' characters), so it is best-effort decoded once
+ * before replay; a malformed percent sequence keeps the raw value. Returns
+ * null for empty/blank values or paths containing any C0/C1/DEL control
+ * characters after decoding (terminal line editing could otherwise erase the
+ * quoted prefix and inject commands) so reconnect falls back to the default
+ * behavior.
  */
 export function buildReconnectCwdCommand(cwd: string) {
   if (!cwd.trim()) return null;
-  if (CONTROL_CHARS.test(cwd)) return null;
-  return `cd '${cwd.replace(/'/g, "'\\''")}'`;
+  let decoded = cwd;
+  try {
+    decoded = decodeURIComponent(cwd);
+  } catch {
+    // Malformed percent sequence: treat the payload as a raw path.
+  }
+  if (!decoded.trim() || CONTROL_CHARS.test(decoded)) return null;
+  return `cd '${decoded.replace(/'/g, "'\\''")}'`;
 }
 
 /**

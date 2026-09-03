@@ -123,7 +123,7 @@ pub fn injection_script(shell: ShellKind, ready_marker: &str) -> Option<String> 
                 " }};",
                 " __nyaterm_prompt(){{",
                 " local status=$?; __nyaterm_prune_history; __nyaterm_emit_command;",
-                " printf '\\033]7;file://%s%s\\007' \"$(__nyaterm_host)\" \"$PWD\";",
+                " local cwd=\"${{PWD//%/%25}}\"; printf '\\033]7;file://%s%s\\007' \"$(__nyaterm_host)\" \"$cwd\";",
                 " return \"$status\";",
                 " }};",
                 " __nyaterm_prompt_state_writable(){{ local name decl; for name in __nyaterm_saved_prompt_command __nyaterm_extra_prompt_commands __nyaterm_exported_prompt_fallback; do decl=\"$(declare -p \"$name\" 2>/dev/null || true)\"; [[ ! \"$decl\" =~ ^declare\\ -[^[:space:]]*r ]] || return 1; done; }};",
@@ -174,7 +174,7 @@ pub fn injection_script(shell: ShellKind, ready_marker: &str) -> Option<String> 
                 " __nyaterm_host(){{ hostname 2>/dev/null || printf localhost; }};",
                 " __nyaterm_ready_failed(){{ [ -n \"${{__nyaterm_failure_reported:-}}\" ] || {{ __nyaterm_failure_reported=1; printf '%s' \"${{NYATERM_READY_FAILED_MARKER-}}\"; }}; }};",
                 " __nyaterm_emit(){{",
-                " local saved_status=$?; printf '\\033]7;file://%s%s\\007' \"$(__nyaterm_host)\" \"$PWD\"; return \"$saved_status\";",
+                " local saved_status=$?; local cwd=\"${{PWD//%/%25}}\"; printf '\\033]7;file://%s%s\\007' \"$(__nyaterm_host)\" \"$cwd\"; return \"$saved_status\";",
                 " }};",
                 " __nyaterm_preexec(){{",
                 " local saved_status=$?; if [ -n \"$1\" ]; then",
@@ -209,7 +209,7 @@ pub fn injection_script(shell: ShellKind, ready_marker: &str) -> Option<String> 
                 " set -g NYATERM_COMMAND_MARKER \"{}\";",
                 " set -g NYATERM_READY_FAILED_MARKER (printf '{}');",
                 " function __nyaterm_emit --on-event fish_prompt;",
-                " set -l saved_status $status; printf '\\033]7;file://%s%s\\007' (hostname) $PWD; return $saved_status;",
+                " set -l saved_status $status; set -l cwd (string replace -a '%' '%25' -- $PWD); printf '\\033]7;file://%s%s\\007' (hostname) $cwd; return $saved_status;",
                 " end;",
                 " function __nyaterm_preexec --on-event fish_preexec;",
                 " set -l saved_status $status; if test -n \"$argv[1]\";",
@@ -353,7 +353,8 @@ const ZSH_PERSISTENT_SCRIPT: &str = concat!(
     "__nyaterm_emit(){\n",
     "  local saved_status=$?\n",
     "  if [ -n \"${NYATERM_READY_PENDING:-}\" ]; then unset NYATERM_READY_PENDING; printf '%s' \"${NYATERM_READY_MARKER-}\"; fi\n",
-    "  printf '\\033]7;file://%s%s\\007' \"$(__nyaterm_host)\" \"$PWD\"\n",
+    "  local cwd=\"${PWD//%/%25}\"\n",
+    "  printf '\\033]7;file://%s%s\\007' \"$(__nyaterm_host)\" \"$cwd\"\n",
     "  return \"$saved_status\"\n",
     "}\n",
     "__nyaterm_preexec(){\n",
@@ -387,7 +388,8 @@ const FISH_PERSISTENT_SCRIPT: &str = concat!(
     "    set -e NYATERM_READY_PENDING\n",
     "    printf '%s' \"$NYATERM_READY_MARKER\"\n",
     "  end\n",
-    "  printf '\\033]7;file://%s%s\\007' (hostname) $PWD\n",
+    "  set -l cwd (string replace -a '%' '%25' -- $PWD)\n",
+    "  printf '\\033]7;file://%s%s\\007' (hostname) $cwd\n",
     "  return $saved_status\n",
     "end\n",
     "function __nyaterm_preexec\n",
@@ -1214,6 +1216,24 @@ eval "$PROMPT_COMMAND" 2>/dev/null || true
         for script in [&bash, &zsh, &fish] {
             assert!(script.contains("NyaTermReadyFailed:session-1"));
         }
+        assert!(bash.contains("${PWD//%/%25}"));
+        assert!(zsh.contains("${PWD//%/%25}"));
+        assert!(fish.contains("string replace -a '%' '%25' -- $PWD"));
+        assert!(
+            persistent_script(ShellKind::Bash)
+                .expect("bash persistent script")
+                .contains("${PWD//%/%25}")
+        );
+        assert!(
+            persistent_script(ShellKind::Zsh)
+                .expect("zsh persistent script")
+                .contains("${PWD//%/%25}")
+        );
+        assert!(
+            persistent_script(ShellKind::Fish)
+                .expect("fish persistent script")
+                .contains("string replace -a '%' '%25' -- $PWD")
+        );
         assert!(bash.contains("local status=$?"));
         assert!(bash.contains("__nyaterm_run_saved_prompt_command"));
         assert!(bash.contains("__nyaterm_repair_prompt"));
