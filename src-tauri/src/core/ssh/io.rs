@@ -22,9 +22,11 @@ use std::{pin::Pin, sync::Arc, time::Instant};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::time::{Duration, Sleep, timeout};
 
-const INJECT_TIMEOUT_SECS: u64 = 30;
+const INJECT_TIMEOUT_SECS: u64 = 8;
 const INITIAL_INJECT_DELAY_MS: u64 = 500;
 const SUPPRESSED_VISIBLE_FALLBACK_MAX_BYTES: usize = 64 * 1024;
+const SUPPRESSION_DIAGNOSTIC_INITIAL_MS: u64 = 1_000;
+const SUPPRESSION_DIAGNOSTIC_INTERVAL_MS: u64 = 2_000;
 
 #[derive(Debug)]
 enum ShellDetectionResult {
@@ -589,6 +591,77 @@ enum InjectionTimeoutEvent {
     FallbackToNormal,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InjectionTimeoutSource {
+    Deadline,
+    WallClock,
+}
+
+impl std::fmt::Display for InjectionTimeoutSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Deadline => f.write_str("deadline"),
+            Self::WallClock => f.write_str("wall_clock"),
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct SuppressionDiagnostics {
+    rx_bytes_total: u64,
+    rx_chunks: u64,
+    first_rx_after_ms: Option<u64>,
+    last_rx_after_ms: Option<u64>,
+    pre_ready_write_bytes: u64,
+    pre_ready_write_chunks: u64,
+    last_diagnostic_at: Option<Instant>,
+}
+
+impl SuppressionDiagnostics {
+    fn reset(&mut self) {
+        *self = Self::default();
+    }
+
+    fn record_rx(&mut self, bytes: usize, injection_sent_at: &Instant, now: Instant) {
+        let elapsed_ms = elapsed_ms_at(injection_sent_at, now);
+        self.rx_bytes_total = self
+            .rx_bytes_total
+            .saturating_add(u64::try_from(bytes).unwrap_or(u64::MAX));
+        self.rx_chunks = self.rx_chunks.saturating_add(1);
+        self.first_rx_after_ms.get_or_insert(elapsed_ms);
+        self.last_rx_after_ms = Some(elapsed_ms);
+    }
+
+    fn record_pre_ready_write(&mut self, bytes: usize) {
+        self.pre_ready_write_bytes = self
+            .pre_ready_write_bytes
+            .saturating_add(u64::try_from(bytes).unwrap_or(u64::MAX));
+        self.pre_ready_write_chunks = self.pre_ready_write_chunks.saturating_add(1);
+    }
+
+    fn should_log_suppression_diagnostic(
+        &mut self,
+        injection_sent_at: &Instant,
+        now: Instant,
+    ) -> bool {
+        if now.saturating_duration_since(*injection_sent_at)
+            < Duration::from_millis(SUPPRESSION_DIAGNOSTIC_INITIAL_MS)
+        {
+            return false;
+        }
+
+        if self.last_diagnostic_at.is_some_and(|last| {
+            now.saturating_duration_since(last)
+                < Duration::from_millis(SUPPRESSION_DIAGNOSTIC_INTERVAL_MS)
+        }) {
+            return false;
+        }
+
+        self.last_diagnostic_at = Some(now);
+        true
+    }
+}
+
 struct PendingStartupCommand {
     input: Vec<u8>,
     delay_ms: u64,
@@ -656,10 +729,7 @@ fn on_initial_injection_sent(phase: &mut IoPhase) {
 
 fn handle_injection_result(phase: &mut IoPhase, result: &osc::OscResult) -> InjectionEvent {
     match phase {
-        IoPhase::WaitInitial => {
-            *phase = IoPhase::Suppressing;
-            InjectionEvent::Inject
-        }
+        IoPhase::WaitInitial => InjectionEvent::Inject,
         IoPhase::Suppressing if result.ready_failed => {
             *phase = IoPhase::Normal;
             InjectionEvent::Failed {
@@ -682,12 +752,31 @@ fn handle_injection_result(phase: &mut IoPhase, result: &osc::OscResult) -> Inje
 
 fn handle_injection_timeout(phase: &mut IoPhase) -> InjectionTimeoutEvent {
     match phase {
-        IoPhase::WaitInitial | IoPhase::Suppressing => {
+        IoPhase::Suppressing => {
             *phase = IoPhase::Normal;
             InjectionTimeoutEvent::FallbackToNormal
         }
-        IoPhase::Normal => InjectionTimeoutEvent::None,
+        IoPhase::WaitInitial | IoPhase::Normal => InjectionTimeoutEvent::None,
     }
+}
+
+fn elapsed_ms_at(started_at: &Instant, now: Instant) -> u64 {
+    u64::try_from(now.saturating_duration_since(*started_at).as_millis()).unwrap_or(u64::MAX)
+}
+
+fn injection_has_timed_out_at(
+    phase: &IoPhase,
+    injection_sent_at: Option<&Instant>,
+    now: Instant,
+) -> bool {
+    *phase == IoPhase::Suppressing
+        && injection_sent_at.is_some_and(|started| {
+            now.saturating_duration_since(*started) >= Duration::from_secs(INJECT_TIMEOUT_SECS)
+        })
+}
+
+fn injection_has_timed_out(phase: &IoPhase, injection_sent_at: Option<&Instant>) -> bool {
+    injection_has_timed_out_at(phase, injection_sent_at, Instant::now())
 }
 
 fn append_suppressed_visible_and_take_passthrough(buffer: &mut String, visible: &str) -> String {
@@ -710,6 +799,119 @@ fn discard_suppressed_output(buffer: &mut String, flushed_osc_buffer: String) ->
 }
 
 #[allow(clippy::too_many_arguments)]
+async fn send_shell_integration_injection(
+    channel: &mut russh::Channel<client::Msg>,
+    pending_script: &mut Option<String>,
+    inject_deadline: &mut Pin<&mut Sleep>,
+    phase: &mut IoPhase,
+    session_id: &str,
+    shell_kind: Option<ShellKind>,
+    injection_sent_at: &mut Option<Instant>,
+    suppression_diagnostics: &mut SuppressionDiagnostics,
+) {
+    let Some(script) = pending_script.take() else {
+        return;
+    };
+    let script_bytes = script.len();
+    let script_lines = script.lines().count();
+    let max_line_bytes = script.lines().map(str::len).max().unwrap_or_default();
+
+    tracing::info!(
+        session_id = %session_id,
+        shell = ?shell_kind,
+        phase = %phase,
+        script_bytes,
+        script_lines,
+        max_line_bytes,
+        "SSH shell integration injection sending"
+    );
+
+    match channel.data(script.as_bytes()).await {
+        Ok(()) => {
+            let sent_at = Instant::now();
+            *injection_sent_at = Some(sent_at);
+            suppression_diagnostics.reset();
+            on_initial_injection_sent(phase);
+            inject_deadline
+                .as_mut()
+                .reset(tokio::time::Instant::now() + Duration::from_secs(INJECT_TIMEOUT_SECS));
+            tracing::info!(
+                session_id = %session_id,
+                shell = ?shell_kind,
+                script_bytes,
+                script_lines,
+                max_line_bytes,
+                phase_transition = "WaitInitial -> Suppressing",
+                "SSH shell integration injection sent"
+            );
+        }
+        Err(error) => {
+            let previous_phase = phase.to_string();
+            *phase = IoPhase::Normal;
+            *injection_sent_at = None;
+            let phase_transition = format!("{previous_phase} -> {phase}");
+            tracing::warn!(
+                session_id = %session_id,
+                shell = ?shell_kind,
+                error = %error,
+                phase_transition = %phase_transition,
+                "SSH shell integration injection send failed; continuing in passive mode"
+            );
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn fallback_shell_integration_timeout(
+    phase: &mut IoPhase,
+    stripper: &mut OscStripper,
+    suppressed_visible_fallback: &mut String,
+    session_id: &str,
+    shell_kind: Option<ShellKind>,
+    injection_sent_at: Option<&Instant>,
+    suppression_diagnostics: &SuppressionDiagnostics,
+    timeout_source: InjectionTimeoutSource,
+    pending_post_login: &Option<PendingStartupCommand>,
+    post_login_deadline: &mut Option<Pin<Box<Sleep>>>,
+) -> bool {
+    if *phase != IoPhase::Suppressing || injection_sent_at.is_none() {
+        return false;
+    }
+
+    let previous_phase = phase.to_string();
+    let timeout_event = handle_injection_timeout(phase);
+    debug_assert_eq!(timeout_event, InjectionTimeoutEvent::FallbackToNormal);
+    let flushed = stripper.flush();
+    let osc_buffer_bytes = flushed.len();
+    let suppressed_visible_bytes = suppressed_visible_fallback.len();
+    let discarded_visible_bytes = discard_suppressed_output(suppressed_visible_fallback, flushed);
+    let elapsed_ms = injection_sent_at
+        .map(|started| elapsed_ms_at(started, Instant::now()))
+        .unwrap_or(0);
+    let phase_transition = format!("{previous_phase} -> {phase}");
+    tracing::warn!(
+        session_id = %session_id,
+        shell = ?shell_kind,
+        elapsed_ms,
+        injection_timeout_secs = INJECT_TIMEOUT_SECS,
+        suppression_rx_bytes = suppression_diagnostics.rx_bytes_total,
+        suppression_rx_chunks = suppression_diagnostics.rx_chunks,
+        first_suppression_rx_after_ms = ?suppression_diagnostics.first_rx_after_ms,
+        last_suppression_rx_after_ms = ?suppression_diagnostics.last_rx_after_ms,
+        suppressed_visible_bytes,
+        osc_buffer_bytes,
+        discarded_visible_bytes,
+        pre_ready_write_bytes = suppression_diagnostics.pre_ready_write_bytes,
+        pre_ready_write_chunks = suppression_diagnostics.pre_ready_write_chunks,
+        timeout_source = %timeout_source,
+        phase_transition = %phase_transition,
+        "SSH shell integration injection timed out"
+    );
+    arm_post_login_timer(phase, pending_post_login, post_login_deadline);
+    true
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn handle_osc_result(
     app: &AppHandle,
     output: &Arc<SessionOutputCoalescer>,
@@ -726,6 +928,7 @@ async fn handle_osc_result(
     suppressed_visible_fallback: &mut String,
     shell_kind: Option<ShellKind>,
     injection_sent_at: &mut Option<Instant>,
+    suppression_diagnostics: &mut SuppressionDiagnostics,
 ) {
     let was_suppressing = *phase == IoPhase::Suppressing;
     let injection_event = handle_injection_result(phase, result);
@@ -743,12 +946,6 @@ async fn handle_osc_result(
     };
     match injection_event {
         InjectionEvent::Inject => {
-            tracing::info!(
-                session_id = %session_id,
-                shell = ?shell_kind,
-                phase = "WaitInitial",
-                "SSH shell integration injection sending"
-            );
             emit_output(
                 app,
                 output,
@@ -760,20 +957,17 @@ async fn handle_osc_result(
                 result,
             )
             .await;
-
-            if let Some(script) = pending_script.take() {
-                let _ = channel.data(script.as_bytes()).await;
-                *injection_sent_at = Some(Instant::now());
-                tracing::info!(
-                    session_id = %session_id,
-                    shell = ?shell_kind,
-                    phase_transition = "WaitInitial -> Suppressing",
-                    "SSH shell integration injection sent"
-                );
-            }
-            inject_deadline
-                .as_mut()
-                .reset(tokio::time::Instant::now() + Duration::from_secs(INJECT_TIMEOUT_SECS));
+            send_shell_integration_injection(
+                channel,
+                pending_script,
+                inject_deadline,
+                phase,
+                session_id,
+                shell_kind,
+                injection_sent_at,
+                suppression_diagnostics,
+            )
+            .await;
         }
         InjectionEvent::Ready {
             visible_after_ready,
@@ -929,6 +1123,7 @@ pub(super) async fn ssh_io_loop(
     let mut pending_script = injection_script;
     let mut initial_remote_data_logged = false;
     let mut injection_sent_at: Option<Instant> = None;
+    let mut suppression_diagnostics = SuppressionDiagnostics::default();
     let mut pending_post_login = post_login.and_then(|config| {
         build_post_login_command_input(&config.command).map(|input| PendingStartupCommand {
             input,
@@ -964,9 +1159,40 @@ pub(super) async fn ssh_io_loop(
     tokio::pin!(inject_deadline);
 
     let close_reason = loop {
+        if injection_has_timed_out(&phase, injection_sent_at.as_ref()) {
+            fallback_shell_integration_timeout(
+                &mut phase,
+                &mut stripper,
+                &mut suppressed_visible_fallback,
+                &session_id,
+                shell_kind,
+                injection_sent_at.as_ref(),
+                &suppression_diagnostics,
+                InjectionTimeoutSource::WallClock,
+                &pending_post_login,
+                &mut post_login_deadline,
+            );
+        }
+
         tokio::select! {
             biased;
 
+            _ = &mut inject_deadline,
+                if phase == IoPhase::Suppressing && injection_sent_at.is_some() =>
+            {
+                fallback_shell_integration_timeout(
+                    &mut phase,
+                    &mut stripper,
+                    &mut suppressed_visible_fallback,
+                    &session_id,
+                    shell_kind,
+                    injection_sent_at.as_ref(),
+                    &suppression_diagnostics,
+                    InjectionTimeoutSource::Deadline,
+                    &pending_post_login,
+                    &mut post_login_deadline,
+                );
+            }
             cmd = cmd_rx.recv() => {
                 match cmd {
                     Some(SessionCommand::AttachConfirmed { ack }) => {
@@ -985,6 +1211,9 @@ pub(super) async fn ssh_io_loop(
                             remap_del_to_bs(&mut data);
                         }
                         let send_data = encode_terminal_input(&data, &encoding);
+                        if phase == IoPhase::Suppressing {
+                            suppression_diagnostics.record_pre_ready_write(send_data.len());
+                        }
                         let _ = channel.data(&send_data[..]).await;
                     }
                     Some(SessionCommand::Resize { cols, rows }) => {
@@ -1056,6 +1285,39 @@ pub(super) async fn ssh_io_loop(
             msg = channel.wait(), if !output_paused => {
                 match msg {
                     Some(ChannelMsg::Data { ref data }) => {
+                        if phase == IoPhase::Suppressing {
+                            let now = Instant::now();
+                            if let Some(sent_at) = injection_sent_at.as_ref() {
+                                suppression_diagnostics.record_rx(data.len(), sent_at, now);
+                                if injection_has_timed_out_at(&phase, Some(sent_at), now) {
+                                    fallback_shell_integration_timeout(
+                                        &mut phase,
+                                        &mut stripper,
+                                        &mut suppressed_visible_fallback,
+                                        &session_id,
+                                        shell_kind,
+                                        injection_sent_at.as_ref(),
+                                        &suppression_diagnostics,
+                                        InjectionTimeoutSource::WallClock,
+                                        &pending_post_login,
+                                        &mut post_login_deadline,
+                                    );
+                                } else if suppression_diagnostics
+                                    .should_log_suppression_diagnostic(sent_at, now)
+                                {
+                                    tracing::info!(
+                                        session_id = %session_id,
+                                        shell = ?shell_kind,
+                                        elapsed_ms = elapsed_ms_at(sent_at, now),
+                                        suppression_rx_bytes = suppression_diagnostics.rx_bytes_total,
+                                        suppression_rx_chunks = suppression_diagnostics.rx_chunks,
+                                        last_rx_after_ms = ?suppression_diagnostics.last_rx_after_ms,
+                                        osc_buffer_bytes = stripper.buffered_len(),
+                                        "SSH shell integration still suppressing"
+                                    );
+                                }
+                            }
+                        }
                         if !initial_remote_data_logged {
                             initial_remote_data_logged = true;
                             tracing::info!(
@@ -1160,6 +1422,7 @@ pub(super) async fn ssh_io_loop(
                                         &mut suppressed_visible_fallback,
                                         shell_kind,
                                         &mut injection_sent_at,
+                                        &mut suppression_diagnostics,
                                     ).await;
                                     arm_post_login_timer(
                                         &phase,
@@ -1229,53 +1492,16 @@ pub(super) async fn ssh_io_loop(
                 }
             }
             _ = &mut initial_inject_deadline, if should_send_initial_injection(&phase, pending_script.is_some()) => {
-                if let Some(script) = pending_script.take() {
-                    tracing::info!(
-                        session_id = %session_id,
-                        shell = ?shell_kind,
-                        phase = %phase,
-                        "SSH shell integration injection sending"
-                    );
-                    let _ = channel.data(script.as_bytes()).await;
-                    injection_sent_at = Some(Instant::now());
-                    tracing::info!(
-                        session_id = %session_id,
-                        shell = ?shell_kind,
-                        phase_transition = "WaitInitial -> Suppressing",
-                        "SSH shell integration injection sent"
-                    );
-                    on_initial_injection_sent(&mut phase);
-                    inject_deadline.as_mut().reset(
-                        tokio::time::Instant::now()
-                            + std::time::Duration::from_secs(INJECT_TIMEOUT_SECS),
-                    );
-                }
-            }
-            _ = &mut inject_deadline, if phase != IoPhase::Normal => {
-                let previous_phase = phase.to_string();
-                let timeout_event = handle_injection_timeout(&mut phase);
-                let flushed = stripper.flush();
-                let osc_buffer_bytes = flushed.len();
-                let suppressed_visible_bytes = suppressed_visible_fallback.len();
-                let discarded_visible_bytes = discard_suppressed_output(
-                    &mut suppressed_visible_fallback,
-                    flushed,
-                );
-                let phase_transition = format!("{previous_phase} -> {phase}");
-                tracing::warn!(
-                    session_id = %session_id,
-                    shell = ?shell_kind,
-                    elapsed_ms = injection_sent_at
-                        .as_ref()
-                        .map(|started| started.elapsed().as_millis() as u64)
-                        .unwrap_or(0),
-                    suppressed_visible_bytes,
-                    osc_buffer_bytes,
-                    discarded_visible_bytes,
-                    phase_transition = %phase_transition,
-                    "SSH shell integration injection timed out"
-                );
-                let _ = timeout_event;
+                send_shell_integration_injection(
+                    &mut channel,
+                    &mut pending_script,
+                    &mut inject_deadline,
+                    &mut phase,
+                    &session_id,
+                    shell_kind,
+                    &mut injection_sent_at,
+                    &mut suppression_diagnostics,
+                ).await;
                 arm_post_login_timer(&phase, &pending_post_login, &mut post_login_deadline);
             }
             _ = async {
@@ -1426,16 +1652,20 @@ fn emit_visible_text(
 mod tests {
     use super::{
         INITIAL_INJECT_DELAY_MS, INJECT_TIMEOUT_SECS, InjectionEvent, InjectionTimeoutEvent,
-        IoPhase, PendingStartupCommand, SUPPRESSED_VISIBLE_FALLBACK_MAX_BYTES,
+        InjectionTimeoutSource, IoPhase, PendingStartupCommand,
+        SUPPRESSED_VISIBLE_FALLBACK_MAX_BYTES, SUPPRESSION_DIAGNOSTIC_INITIAL_MS,
+        SUPPRESSION_DIAGNOSTIC_INTERVAL_MS, SuppressionDiagnostics,
         append_suppressed_visible_and_take_passthrough, build_post_login_command_input,
-        build_startup_command_input, discard_suppressed_output, handle_injection_result,
-        handle_injection_timeout, open_shell_channel, should_send_initial_injection,
+        build_startup_command_input, discard_suppressed_output, fallback_shell_integration_timeout,
+        handle_injection_result, handle_injection_timeout, injection_has_timed_out_at,
+        on_initial_injection_sent, open_shell_channel, should_send_initial_injection,
     };
     use crate::config::SftpCwdFollowMode;
     use crate::core::ssh::osc::{OscResult, OscStripper, build_ready_marker};
     use russh::{Channel, ChannelId, Disconnect, client, server};
     use std::pin::Pin;
     use std::sync::Arc;
+    use std::time::Instant;
     use tokio::sync::mpsc;
     use tokio::time::{Duration, Sleep, timeout};
 
@@ -1633,11 +1863,26 @@ mod tests {
         assert!(!should_send_initial_injection(&IoPhase::WaitInitial, false));
         assert!(!should_send_initial_injection(&IoPhase::Suppressing, true));
         assert!(!should_send_initial_injection(&IoPhase::Normal, true));
+
+        let mut phase = IoPhase::WaitInitial;
+        assert_eq!(
+            handle_injection_result(&mut phase, &osc_result(false, "")),
+            InjectionEvent::Inject
+        );
+        assert_eq!(phase, IoPhase::WaitInitial);
+        on_initial_injection_sent(&mut phase);
+        assert_eq!(phase, IoPhase::Suppressing);
     }
 
     #[test]
     fn ready_marker_in_suppressing_enters_normal_and_preserves_prompt_after_ready() {
         let mut phase = IoPhase::Suppressing;
+        let sent_at = Instant::now();
+        assert!(!injection_has_timed_out_at(
+            &phase,
+            Some(&sent_at),
+            sent_at + Duration::from_millis(7_900)
+        ));
         let result = osc_result(true, "[user@host ~]$ ");
 
         let event = handle_injection_result(&mut phase, &result);
@@ -1808,22 +2053,195 @@ mod tests {
     }
 
     #[test]
-    fn injection_timeout_is_30s_and_falls_back_to_normal() {
-        assert_eq!(INJECT_TIMEOUT_SECS, 30);
+    fn injection_timeout_is_8s_and_only_applies_after_injection_is_sent() {
+        assert_eq!(INJECT_TIMEOUT_SECS, 8);
 
         let mut wait_initial = IoPhase::WaitInitial;
         assert_eq!(
             handle_injection_timeout(&mut wait_initial),
-            InjectionTimeoutEvent::FallbackToNormal
+            InjectionTimeoutEvent::None
         );
-        assert_eq!(wait_initial, IoPhase::Normal);
+        assert_eq!(wait_initial, IoPhase::WaitInitial);
+        let sent_at = Instant::now();
+        assert!(!injection_has_timed_out_at(
+            &wait_initial,
+            Some(&sent_at),
+            sent_at + Duration::from_secs(INJECT_TIMEOUT_SECS)
+        ));
 
         let mut suppressing = IoPhase::Suppressing;
+        assert!(!injection_has_timed_out_at(
+            &suppressing,
+            None,
+            sent_at + Duration::from_secs(INJECT_TIMEOUT_SECS)
+        ));
+        assert!(injection_has_timed_out_at(
+            &suppressing,
+            Some(&sent_at),
+            sent_at + Duration::from_secs(INJECT_TIMEOUT_SECS)
+        ));
         assert_eq!(
             handle_injection_timeout(&mut suppressing),
             InjectionTimeoutEvent::FallbackToNormal
         );
         assert_eq!(suppressing, IoPhase::Normal);
+    }
+
+    #[test]
+    fn continuous_remote_data_cannot_extend_wall_clock_timeout() {
+        let sent_at = Instant::now();
+        let mut phase = IoPhase::Suppressing;
+        let mut diagnostics = SuppressionDiagnostics::default();
+
+        for chunk in 0..80 {
+            let now = sent_at + Duration::from_millis(chunk * 100);
+            diagnostics.record_rx(4, &sent_at, now);
+            assert!(!injection_has_timed_out_at(&phase, Some(&sent_at), now));
+        }
+
+        let timeout_at = sent_at + Duration::from_secs(INJECT_TIMEOUT_SECS);
+        diagnostics.record_rx(4, &sent_at, timeout_at);
+        assert!(injection_has_timed_out_at(
+            &phase,
+            Some(&sent_at),
+            timeout_at
+        ));
+        assert_eq!(diagnostics.rx_bytes_total, 324);
+        assert_eq!(diagnostics.rx_chunks, 81);
+        assert_eq!(diagnostics.first_rx_after_ms, Some(0));
+        assert_eq!(diagnostics.last_rx_after_ms, Some(8_000));
+        assert_eq!(
+            handle_injection_timeout(&mut phase),
+            InjectionTimeoutEvent::FallbackToNormal
+        );
+        assert_eq!(phase, IoPhase::Normal);
+    }
+
+    #[tokio::test]
+    async fn expired_injection_deadline_wins_over_ready_remote_data() {
+        let deadline = tokio::time::sleep(Duration::ZERO);
+        tokio::pin!(deadline);
+        let remote_data = std::future::ready(());
+
+        let selected = tokio::select! {
+            biased;
+            () = &mut deadline => "deadline",
+            () = remote_data => "remote_data",
+        };
+
+        assert_eq!(selected, "deadline");
+    }
+
+    #[test]
+    fn ready_marker_after_timeout_stays_normal_and_is_safely_stripped() {
+        let ready_marker = build_ready_marker("session-1");
+        let mut stripper = OscStripper::new(&ready_marker);
+        let mut phase = IoPhase::Suppressing;
+        assert_eq!(
+            handle_injection_timeout(&mut phase),
+            InjectionTimeoutEvent::FallbackToNormal
+        );
+
+        let result = stripper.push(&format!("{ready_marker}late prompt"));
+        let event = handle_injection_result(&mut phase, &result);
+
+        assert_eq!(phase, IoPhase::Normal);
+        assert_eq!(event, InjectionEvent::None);
+        assert_eq!(result.visible, "late prompt");
+        assert!(result.ready);
+    }
+
+    #[test]
+    fn pre_ready_writes_are_counted_without_extending_timeout() {
+        let sent_at = Instant::now();
+        let phase = IoPhase::Suppressing;
+        let mut diagnostics = SuppressionDiagnostics::default();
+
+        diagnostics.record_pre_ready_write(3);
+        diagnostics.record_pre_ready_write(5);
+
+        assert_eq!(diagnostics.pre_ready_write_bytes, 8);
+        assert_eq!(diagnostics.pre_ready_write_chunks, 2);
+        assert!(injection_has_timed_out_at(
+            &phase,
+            Some(&sent_at),
+            sent_at + Duration::from_secs(INJECT_TIMEOUT_SECS)
+        ));
+    }
+
+    #[test]
+    fn suppression_diagnostic_is_delayed_and_rate_limited() {
+        assert_eq!(SUPPRESSION_DIAGNOSTIC_INITIAL_MS, 1_000);
+        assert_eq!(SUPPRESSION_DIAGNOSTIC_INTERVAL_MS, 2_000);
+        let sent_at = Instant::now();
+        let mut diagnostics = SuppressionDiagnostics::default();
+
+        assert!(
+            !diagnostics
+                .should_log_suppression_diagnostic(&sent_at, sent_at + Duration::from_millis(999))
+        );
+        assert!(
+            diagnostics
+                .should_log_suppression_diagnostic(&sent_at, sent_at + Duration::from_secs(1))
+        );
+        assert!(
+            !diagnostics.should_log_suppression_diagnostic(
+                &sent_at,
+                sent_at + Duration::from_millis(2_999)
+            )
+        );
+        assert!(
+            diagnostics
+                .should_log_suppression_diagnostic(&sent_at, sent_at + Duration::from_secs(3))
+        );
+    }
+
+    #[tokio::test]
+    async fn timeout_fallback_is_idempotent_flushes_buffers_and_arms_post_login() {
+        let ready_marker = build_ready_marker("session-1");
+        let mut stripper = OscStripper::new(&ready_marker);
+        let _ = stripper.push("\x1b]2;unfinished");
+        let mut suppressed_visible = "hidden startup output".to_string();
+        let mut phase = IoPhase::Suppressing;
+        let sent_at = Instant::now()
+            .checked_sub(Duration::from_secs(INJECT_TIMEOUT_SECS))
+            .expect("test instant should support an eight-second subtraction");
+        let diagnostics = SuppressionDiagnostics::default();
+        let pending_post_login = Some(PendingStartupCommand {
+            input: b"uptime\r".to_vec(),
+            delay_ms: 1,
+        });
+        let mut post_login_deadline: Option<Pin<Box<Sleep>>> = None;
+
+        assert!(fallback_shell_integration_timeout(
+            &mut phase,
+            &mut stripper,
+            &mut suppressed_visible,
+            "session-1",
+            Some(crate::core::ssh::osc::ShellKind::Bash),
+            Some(&sent_at),
+            &diagnostics,
+            InjectionTimeoutSource::Deadline,
+            &pending_post_login,
+            &mut post_login_deadline,
+        ));
+        assert_eq!(phase, IoPhase::Normal);
+        assert!(suppressed_visible.is_empty());
+        assert_eq!(stripper.buffered_len(), 0);
+        assert!(post_login_deadline.is_some());
+
+        assert!(!fallback_shell_integration_timeout(
+            &mut phase,
+            &mut stripper,
+            &mut suppressed_visible,
+            "session-1",
+            Some(crate::core::ssh::osc::ShellKind::Bash),
+            Some(&sent_at),
+            &diagnostics,
+            InjectionTimeoutSource::WallClock,
+            &pending_post_login,
+            &mut post_login_deadline,
+        ));
     }
 
     #[test]
