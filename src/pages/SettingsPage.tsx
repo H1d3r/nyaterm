@@ -409,6 +409,11 @@ export default function SettingsPage() {
     }
   }, [committedSettings.ui.language, discardDraftSettings, i18n]);
 
+  const handleDiscardAndClose = useCallback(async () => {
+    await handleCancel();
+    await closeSettingsWindow();
+  }, [closeSettingsWindow, handleCancel]);
+
   const requestClose = useCallback(() => {
     if (isDirty) {
       setCloseConfirmOpen(true);
@@ -713,7 +718,7 @@ export default function SettingsPage() {
               variant="destructive"
               disabled={isSaving}
               onClick={() => {
-                void handleCancel();
+                void handleDiscardAndClose();
               }}
             >
               {t("settings.discardChanges")}
