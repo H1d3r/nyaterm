@@ -245,7 +245,7 @@ export function TerminalTab() {
           desc={t("settings.reconnectRestoreCwdDesc")}
         >
           <SettingSwitch
-            checked={appSettings.terminal.reconnect_restore_cwd ?? true}
+            checked={appSettings.terminal.reconnect_restore_cwd ?? false}
             onChange={(v) =>
               updateAppSettings({
                 terminal: { ...appSettings.terminal, reconnect_restore_cwd: v },

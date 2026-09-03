@@ -1104,7 +1104,7 @@ export default function XTerminal({
       const settingsSnapshot = terminalAppSettingsRef.current;
       const restoreCwdStartupCommand =
         sessionTypeRef.current === "SSH" &&
-        (settingsSnapshot.terminal.reconnect_restore_cwd ?? true)
+        (settingsSnapshot.terminal.reconnect_restore_cwd ?? false)
           ? buildReconnectCwdStartupCommand(
               sessionIdRef.current,
               settingsSnapshot.interaction.duplicate_session_command_delay_ms,

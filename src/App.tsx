@@ -2461,7 +2461,7 @@ function App() {
 
   const buildPaneReconnectCwdStartupCommand = useCallback(
     (pane: Pick<SessionPane, "sessionId">) =>
-      appSettings.terminal.reconnect_restore_cwd ?? true
+      appSettings.terminal.reconnect_restore_cwd ?? false
         ? buildReconnectCwdStartupCommand(
             pane.sessionId,
             appSettings.interaction.duplicate_session_command_delay_ms,
