@@ -22,6 +22,20 @@ describe("buildReconnectCwdCommand", () => {
     expect(buildReconnectCwdCommand("/tmp/a\0b")).toBeNull();
   });
 
+  it("returns null for C0 controls beyond \\r\\n\\0", () => {
+    expect(buildReconnectCwdCommand("/tmp/\x15touch /tmp/pwn #")).toBeNull();
+    expect(buildReconnectCwdCommand("/tmp/a\x01b")).toBeNull();
+    expect(buildReconnectCwdCommand("/tmp/a\x1bb")).toBeNull();
+    expect(buildReconnectCwdCommand("/tmp/a\tb")).toBeNull();
+    expect(buildReconnectCwdCommand("/tmp/a\x1f b")).toBeNull();
+  });
+
+  it("returns null for DEL and C1 control characters", () => {
+    expect(buildReconnectCwdCommand("/tmp/a\x7fb")).toBeNull();
+    expect(buildReconnectCwdCommand("/tmp/a\x9fb")).toBeNull();
+    expect(buildReconnectCwdCommand("/tmp/a\x85b")).toBeNull();
+  });
+
   it("wraps a plain path in single quotes", () => {
     expect(buildReconnectCwdCommand("/home/user")).toBe("cd '/home/user'");
   });

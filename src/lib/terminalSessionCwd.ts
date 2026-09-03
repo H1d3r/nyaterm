@@ -41,14 +41,18 @@ export function carryOverSessionCwd(fromSessionId: string, toSessionId: string) 
   store.set(toSessionId, cwd);
 }
 
+/** C0 controls, DEL, and C1 controls — never replayed as terminal input. */
+const CONTROL_CHARS = /[\u0000-\u001F\u007F-\u009F]/;
+
 /**
  * Builds a `cd '<path>'` command for the given cwd. Returns null for
- * empty/blank values or paths containing control characters so reconnect
- * falls back to the default behavior instead of replaying unsafe input.
+ * empty/blank values or paths containing any C0/C1/DEL control characters
+ * (terminal line editing could otherwise erase the quoted prefix and inject
+ * commands) so reconnect falls back to the default behavior.
  */
 export function buildReconnectCwdCommand(cwd: string) {
   if (!cwd.trim()) return null;
-  if (/[\r\n\0]/.test(cwd)) return null;
+  if (CONTROL_CHARS.test(cwd)) return null;
   return `cd '${cwd.replace(/'/g, "'\\''")}'`;
 }
 

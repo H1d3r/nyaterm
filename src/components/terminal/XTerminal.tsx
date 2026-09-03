@@ -507,11 +507,25 @@ export default function XTerminal({
   }, [hibernated, requestWake, sessionId]);
 
   useEffect(() => {
+    let disposed = false;
+    let cwdEventObserved = false;
     const unlisten = listen<string>(`cwd-changed-${sessionId}`, (event) => {
+      cwdEventObserved = true;
       recordSessionCwd(sessionId, event.payload);
     });
+    void unlisten.then(() => {
+      if (disposed) return;
+      void invoke<string | null>("try_get_terminal_cwd", { sessionId }).then(
+        (cwd) => {
+          if (disposed || cwdEventObserved || cwd === null) return;
+          recordSessionCwd(sessionId, cwd);
+        },
+        () => {},
+      );
+    });
     return () => {
-      unlisten.then((fn) => fn());
+      disposed = true;
+      void unlisten.then((fn) => fn());
     };
   }, [sessionId]);
 
