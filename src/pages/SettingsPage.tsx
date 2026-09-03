@@ -403,16 +403,14 @@ export default function SettingsPage() {
 
   const handleCancel = useCallback(async () => {
     discardDraftSettings();
+
     const committedLanguage = committedSettings.ui.language || "en";
     if (i18n.language !== committedLanguage) {
       await i18n.changeLanguage(committedLanguage);
     }
-  }, [committedSettings.ui.language, discardDraftSettings, i18n]);
 
-  const handleDiscardAndClose = useCallback(async () => {
-    await handleCancel();
     await closeSettingsWindow();
-  }, [closeSettingsWindow, handleCancel]);
+  }, [closeSettingsWindow, committedSettings.ui.language, discardDraftSettings, i18n]);
 
   const requestClose = useCallback(() => {
     if (isDirty) {
@@ -718,7 +716,7 @@ export default function SettingsPage() {
               variant="destructive"
               disabled={isSaving}
               onClick={() => {
-                void handleDiscardAndClose();
+                void handleCancel();
               }}
             >
               {t("settings.discardChanges")}
