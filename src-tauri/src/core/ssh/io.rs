@@ -12,7 +12,7 @@ use crate::core::zmodem::{
     ZmodemEvent, ZmodemTransfer, ZmodemUploadDrain, start_zmodem_transfer,
 };
 use crate::core::{
-    RecordingManager, SessionCommand, SessionCommandReceiver, SessionCommandSender,
+    InputOrigin, RecordingManager, SessionCommand, SessionCommandReceiver, SessionCommandSender,
     SessionCwdReplacement, SessionManager, SessionOutputCoalescer, SharedCwd, replace_cwd_state,
     update_cwd_if_changed,
 };
@@ -721,6 +721,48 @@ fn should_send_initial_injection(phase: &IoPhase, has_pending_script: bool) -> b
     *phase == IoPhase::WaitInitial && has_pending_script
 }
 
+fn cancel_pending_injection_for_input(
+    phase: &mut IoPhase,
+    pending_script: &mut Option<String>,
+    origin: InputOrigin,
+) -> bool {
+    if *phase != IoPhase::WaitInitial
+        || pending_script.is_none()
+        || origin == InputOrigin::TerminalResponse
+    {
+        return false;
+    }
+
+    pending_script.take();
+    *phase = IoPhase::Normal;
+    true
+}
+
+async fn handle_input_before_initial_injection(
+    phase: &mut IoPhase,
+    pending_script: &mut Option<String>,
+    origin: InputOrigin,
+    manager: &SessionManager,
+    session_id: &str,
+    pending_post_login: &Option<PendingStartupCommand>,
+    post_login_deadline: &mut Option<Pin<Box<Sleep>>>,
+) {
+    if !cancel_pending_injection_for_input(phase, pending_script, origin) {
+        return;
+    }
+
+    tracing::info!(
+        session_id = %session_id,
+        ?origin,
+        phase_transition = "WaitInitial -> Normal",
+        "SSH shell integration injection cancelled by terminal input"
+    );
+    manager
+        .set_dynamic_title_integration_active(session_id, false)
+        .await;
+    arm_post_login_timer(phase, pending_post_login, post_login_deadline);
+}
+
 fn on_initial_injection_sent(phase: &mut IoPhase) {
     if *phase == IoPhase::WaitInitial {
         *phase = IoPhase::Suppressing;
@@ -1201,12 +1243,22 @@ pub(super) async fn ssh_io_loop(
                     Some(SessionCommand::DetachRenderer) => {
                         output.detach();
                     }
-                    Some(SessionCommand::Write { mut data, .. }) => {
+                    Some(SessionCommand::Write { mut data, origin, .. }) => {
                         if zmodem_transfer.is_some()
                             || zmodem_upload_drain.should_suppress(std::time::Instant::now())
                         {
                             continue;
                         }
+                        handle_input_before_initial_injection(
+                            &mut phase,
+                            &mut pending_script,
+                            origin,
+                            &manager,
+                            &session_id,
+                            &pending_post_login,
+                            &mut post_login_deadline,
+                        )
+                        .await;
                         if backspace_as_bs {
                             remap_del_to_bs(&mut data);
                         }
@@ -1229,6 +1281,16 @@ pub(super) async fn ssh_io_loop(
                         output.ack(bytes);
                     }
                     Some(SessionCommand::CaptureExec { marker_id, wrapped_command, result_tx }) => {
+                        handle_input_before_initial_injection(
+                            &mut phase,
+                            &mut pending_script,
+                            InputOrigin::AiAgent,
+                            &manager,
+                            &session_id,
+                            &pending_post_login,
+                            &mut post_login_deadline,
+                        )
+                        .await;
                         capture_processor.register(marker_id, result_tx);
                         let send_command = encode_terminal_input(&wrapped_command, &encoding);
                         let _ = channel.data(&send_command[..]).await;
@@ -1656,11 +1718,13 @@ mod tests {
         SUPPRESSED_VISIBLE_FALLBACK_MAX_BYTES, SUPPRESSION_DIAGNOSTIC_INITIAL_MS,
         SUPPRESSION_DIAGNOSTIC_INTERVAL_MS, SuppressionDiagnostics,
         append_suppressed_visible_and_take_passthrough, build_post_login_command_input,
-        build_startup_command_input, discard_suppressed_output, fallback_shell_integration_timeout,
-        handle_injection_result, handle_injection_timeout, injection_has_timed_out_at,
-        on_initial_injection_sent, open_shell_channel, should_send_initial_injection,
+        build_startup_command_input, cancel_pending_injection_for_input, discard_suppressed_output,
+        fallback_shell_integration_timeout, handle_injection_result, handle_injection_timeout,
+        injection_has_timed_out_at, on_initial_injection_sent, open_shell_channel,
+        should_send_initial_injection,
     };
     use crate::config::SftpCwdFollowMode;
+    use crate::core::InputOrigin;
     use crate::core::ssh::osc::{OscResult, OscStripper, build_ready_marker};
     use russh::{Channel, ChannelId, Disconnect, client, server};
     use std::pin::Pin;
@@ -1872,6 +1936,87 @@ mod tests {
         assert_eq!(phase, IoPhase::WaitInitial);
         on_initial_injection_sent(&mut phase);
         assert_eq!(phase, IoPhase::Suppressing);
+    }
+
+    #[test]
+    fn real_input_before_initial_injection_cancels_pending_script_and_preserves_output() {
+        let ready_marker = build_ready_marker("session-1");
+        let mut stripper = OscStripper::new(&ready_marker);
+        let mut phase = IoPhase::WaitInitial;
+        let mut pending_script =
+            Some("source ~/.config/nyaterm/shell-integration.bash\n".to_string());
+
+        assert!(cancel_pending_injection_for_input(
+            &mut phase,
+            &mut pending_script,
+            InputOrigin::Keyboard,
+        ));
+        assert_eq!(phase, IoPhase::Normal);
+        assert!(pending_script.is_none());
+
+        let chunks = [
+            "\x1b[38;5;14mubuntu-logo\x1b[0m\nOS: Ubuntu 22.04\n",
+            "Kernel: 6.8.0\nUptime: 1 day\n",
+        ];
+        let mut visible = String::new();
+        for chunk in chunks {
+            let result = stripper.push(chunk);
+            assert_eq!(
+                handle_injection_result(&mut phase, &result),
+                InjectionEvent::None
+            );
+            assert_eq!(phase, IoPhase::Normal);
+            visible.push_str(&result.visible);
+        }
+
+        assert_eq!(visible, chunks.concat());
+    }
+
+    #[test]
+    fn terminal_response_keeps_pending_initial_injection() {
+        let mut phase = IoPhase::WaitInitial;
+        let mut pending_script = Some("integration-script".to_string());
+
+        assert!(!cancel_pending_injection_for_input(
+            &mut phase,
+            &mut pending_script,
+            InputOrigin::TerminalResponse,
+        ));
+        assert_eq!(phase, IoPhase::WaitInitial);
+        assert!(pending_script.is_some());
+        assert_eq!(
+            handle_injection_result(&mut phase, &osc_result(false, "")),
+            InjectionEvent::Inject
+        );
+        on_initial_injection_sent(&mut phase);
+        assert_eq!(phase, IoPhase::Suppressing);
+    }
+
+    #[test]
+    fn input_after_initial_injection_does_not_end_suppression() {
+        let ready_marker = build_ready_marker("session-1");
+        let mut stripper = OscStripper::new(&ready_marker);
+        let mut phase = IoPhase::Suppressing;
+        let mut pending_script = None;
+
+        assert!(!cancel_pending_injection_for_input(
+            &mut phase,
+            &mut pending_script,
+            InputOrigin::Keyboard,
+        ));
+        let source_echo = stripper.push("hidden integration echo");
+        assert_eq!(
+            handle_injection_result(&mut phase, &source_echo),
+            InjectionEvent::None
+        );
+        assert_eq!(phase, IoPhase::Suppressing);
+
+        let ready = stripper.push(&ready_marker);
+        assert!(matches!(
+            handle_injection_result(&mut phase, &ready),
+            InjectionEvent::Ready { .. }
+        ));
+        assert_eq!(phase, IoPhase::Normal);
     }
 
     #[test]
@@ -2312,6 +2457,51 @@ mod tests {
             &mut post_login_deadline,
         );
 
+        assert!(post_login_deadline.is_some());
+        post_login_deadline.as_mut().unwrap().as_mut().await;
+    }
+
+    #[tokio::test]
+    async fn early_input_cancellation_arms_post_login_timer() {
+        let pending_post_login = Some(PendingStartupCommand {
+            input: b"uptime\r".to_vec(),
+            delay_ms: 1,
+        });
+        let mut pending_script = Some("integration-script".to_string());
+        let mut phase = IoPhase::WaitInitial;
+        let mut post_login_deadline: Option<Pin<Box<Sleep>>> = None;
+
+        assert!(cancel_pending_injection_for_input(
+            &mut phase,
+            &mut pending_script,
+            InputOrigin::QuickCommand,
+        ));
+        super::arm_post_login_timer(&phase, &pending_post_login, &mut post_login_deadline);
+
+        assert_eq!(phase, IoPhase::Normal);
+        assert!(post_login_deadline.is_some());
+        post_login_deadline.as_mut().unwrap().as_mut().await;
+    }
+
+    #[tokio::test]
+    async fn capture_exec_before_initial_injection_cancels_pending_script() {
+        let pending_post_login = Some(PendingStartupCommand {
+            input: b"uptime\r".to_vec(),
+            delay_ms: 1,
+        });
+        let mut pending_script = Some("integration-script".to_string());
+        let mut phase = IoPhase::WaitInitial;
+        let mut post_login_deadline: Option<Pin<Box<Sleep>>> = None;
+
+        assert!(cancel_pending_injection_for_input(
+            &mut phase,
+            &mut pending_script,
+            InputOrigin::AiAgent,
+        ));
+        super::arm_post_login_timer(&phase, &pending_post_login, &mut post_login_deadline);
+
+        assert_eq!(phase, IoPhase::Normal);
+        assert!(pending_script.is_none());
         assert!(post_login_deadline.is_some());
         post_login_deadline.as_mut().unwrap().as_mut().await;
     }
