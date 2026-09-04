@@ -921,6 +921,45 @@ pub async fn ack_session_output(
 }
 
 #[tauri::command]
+pub async fn zmodem_pick_download_dir(
+    window: tauri::Window,
+) -> AppResult<Option<tauri_plugin_dialog::FilePath>> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+    let dialog = window.dialog().file();
+    #[cfg(any(windows, target_os = "macos"))]
+    let dialog = dialog.set_parent(&window);
+    dialog.pick_folder(move |path| {
+        let _ = result_tx.send(path.map(|path| path.simplified()));
+    });
+
+    result_rx
+        .await
+        .map_err(|_| AppError::Channel("ZMODEM folder picker result was dropped".to_string()))
+}
+
+#[tauri::command]
+pub async fn zmodem_pick_upload_files(
+    window: tauri::Window,
+) -> AppResult<Option<Vec<tauri_plugin_dialog::FilePath>>> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+    let dialog = window.dialog().file();
+    #[cfg(any(windows, target_os = "macos"))]
+    let dialog = dialog.set_parent(&window);
+    dialog.pick_files(move |paths| {
+        let _ = result_tx
+            .send(paths.map(|paths| paths.into_iter().map(|path| path.simplified()).collect()));
+    });
+
+    result_rx
+        .await
+        .map_err(|_| AppError::Channel("ZMODEM file picker result was dropped".to_string()))
+}
+
+#[tauri::command]
 pub async fn zmodem_accept_download(
     state: tauri::State<'_, Arc<SessionManager>>,
     session_id: String,
