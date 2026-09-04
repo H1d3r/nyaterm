@@ -1330,10 +1330,10 @@ function TabBar({
           borderColor: "var(--df-border)",
           backgroundColor: isActive
             ? accentColor
-              ? `color-mix(in srgb, ${accentColor} 8%, var(--df-bg))`
+              ? `color-mix(in srgb, ${accentColor} 16%, var(--df-bg))`
               : "var(--df-bg)"
             : accentColor
-              ? `color-mix(in srgb, ${accentColor} 5%, transparent)`
+              ? `color-mix(in srgb, ${accentColor} 12%, var(--df-bg-panel))`
               : "transparent",
           color: isActive ? "var(--df-text)" : "var(--df-text-muted)",
         }}
