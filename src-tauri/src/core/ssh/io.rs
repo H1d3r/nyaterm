@@ -738,6 +738,31 @@ fn cancel_pending_injection_for_input(
     true
 }
 
+async fn handle_input_before_initial_injection(
+    phase: &mut IoPhase,
+    pending_script: &mut Option<String>,
+    origin: InputOrigin,
+    manager: &SessionManager,
+    session_id: &str,
+    pending_post_login: &Option<PendingStartupCommand>,
+    post_login_deadline: &mut Option<Pin<Box<Sleep>>>,
+) {
+    if !cancel_pending_injection_for_input(phase, pending_script, origin) {
+        return;
+    }
+
+    tracing::info!(
+        session_id = %session_id,
+        ?origin,
+        phase_transition = "WaitInitial -> Normal",
+        "SSH shell integration injection cancelled by terminal input"
+    );
+    manager
+        .set_dynamic_title_integration_active(session_id, false)
+        .await;
+    arm_post_login_timer(phase, pending_post_login, post_login_deadline);
+}
+
 fn on_initial_injection_sent(phase: &mut IoPhase) {
     if *phase == IoPhase::WaitInitial {
         *phase = IoPhase::Suppressing;
@@ -1224,26 +1249,16 @@ pub(super) async fn ssh_io_loop(
                         {
                             continue;
                         }
-                        if cancel_pending_injection_for_input(
+                        handle_input_before_initial_injection(
                             &mut phase,
                             &mut pending_script,
                             origin,
-                        ) {
-                            tracing::info!(
-                                session_id = %session_id,
-                                ?origin,
-                                phase_transition = "WaitInitial -> Normal",
-                                "SSH shell integration injection cancelled by terminal input"
-                            );
-                            manager
-                                .set_dynamic_title_integration_active(&session_id, false)
-                                .await;
-                            arm_post_login_timer(
-                                &phase,
-                                &pending_post_login,
-                                &mut post_login_deadline,
-                            );
-                        }
+                            &manager,
+                            &session_id,
+                            &pending_post_login,
+                            &mut post_login_deadline,
+                        )
+                        .await;
                         if backspace_as_bs {
                             remap_del_to_bs(&mut data);
                         }
@@ -1266,6 +1281,16 @@ pub(super) async fn ssh_io_loop(
                         output.ack(bytes);
                     }
                     Some(SessionCommand::CaptureExec { marker_id, wrapped_command, result_tx }) => {
+                        handle_input_before_initial_injection(
+                            &mut phase,
+                            &mut pending_script,
+                            InputOrigin::AiAgent,
+                            &manager,
+                            &session_id,
+                            &pending_post_login,
+                            &mut post_login_deadline,
+                        )
+                        .await;
                         capture_processor.register(marker_id, result_tx);
                         let send_command = encode_terminal_input(&wrapped_command, &encoding);
                         let _ = channel.data(&send_command[..]).await;
@@ -2454,6 +2479,29 @@ mod tests {
         super::arm_post_login_timer(&phase, &pending_post_login, &mut post_login_deadline);
 
         assert_eq!(phase, IoPhase::Normal);
+        assert!(post_login_deadline.is_some());
+        post_login_deadline.as_mut().unwrap().as_mut().await;
+    }
+
+    #[tokio::test]
+    async fn capture_exec_before_initial_injection_cancels_pending_script() {
+        let pending_post_login = Some(PendingStartupCommand {
+            input: b"uptime\r".to_vec(),
+            delay_ms: 1,
+        });
+        let mut pending_script = Some("integration-script".to_string());
+        let mut phase = IoPhase::WaitInitial;
+        let mut post_login_deadline: Option<Pin<Box<Sleep>>> = None;
+
+        assert!(cancel_pending_injection_for_input(
+            &mut phase,
+            &mut pending_script,
+            InputOrigin::AiAgent,
+        ));
+        super::arm_post_login_timer(&phase, &pending_post_login, &mut post_login_deadline);
+
+        assert_eq!(phase, IoPhase::Normal);
+        assert!(pending_script.is_none());
         assert!(post_login_deadline.is_some());
         post_login_deadline.as_mut().unwrap().as_mut().await;
     }
