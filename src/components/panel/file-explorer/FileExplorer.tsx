@@ -107,6 +107,7 @@ import {
   buildRemoteUploadPath,
   buildMoveSuccessRefreshPlan,
   buildSessionCacheSnapshot,
+  canTrackTerminalCwd,
   compareFileEntries,
   DEFAULT_FILE_LIST_COLUMN_WIDTHS,
   DEFAULT_FILE_SORT_DIRECTIONS,
@@ -124,6 +125,7 @@ import {
   getLocalPathName,
   type InlineRenameState,
   isParentDirectoryEntry,
+  isSameExplorerDirectory,
   joinExplorerPath,
   type LoadDirectoryOptions,
   MIN_FILE_LIST_COLUMN_WIDTHS,
@@ -136,6 +138,7 @@ import {
   pushVisitedHistory,
   type RemoteTextFile,
   type ResolvedLocalDropPathEntry,
+  subscribeFileExplorerSessionSnapshots,
   syncExplorerDirectoryToTerminalCwd,
   syncExplorerDirectoryToTerminalCwdChange,
   type TextFileOpenResult,
@@ -1038,19 +1041,21 @@ function FileExplorerPane({
       return;
     }
     setRemoteFileBrowserEnabled(hasLocalSession ? true : null);
-    invoke<SessionInfo[]>("list_sessions")
-      .then((sessions) => {
-        const s = sessions.find((s) => s.id === activeSessionId);
-        const active = s?.injection_active ?? false;
-        setCwdTrackingActive(active);
+    return subscribeFileExplorerSessionSnapshots({
+      listenSessionsChanged: (handler) => listen("sessions-changed", handler),
+      readSessions: () => invoke<SessionInfo[]>("list_sessions"),
+      onSessions: (sessions) => {
+        const session = sessions.find((session) => session.id === activeSessionId);
+        setCwdTrackingActive(canTrackTerminalCwd(session));
         setRemoteFileBrowserEnabled(
-          hasLocalSession ? true : (s?.remote_file_browser_enabled ?? true),
+          hasLocalSession ? true : (session?.remote_file_browser_enabled ?? true),
         );
-      })
-      .catch(() => {
+      },
+      onError: () => {
         setCwdTrackingActive(false);
         setRemoteFileBrowserEnabled(true);
-      });
+      },
+    });
   }, [activeSessionId, hasLocalSession, hasSshSession]);
 
   useEffect(() => {
@@ -1460,6 +1465,11 @@ function FileExplorerPane({
       return;
     }
 
+    if (!cwdTrackingActive) {
+      autoSyncCwdMountSyncKeyRef.current = null;
+      return;
+    }
+
     if (!canBrowseFiles || !currentPath) {
       return;
     }
@@ -1492,6 +1502,7 @@ function FileExplorerPane({
     autoSyncScopeId,
     canBrowseFiles,
     currentPath,
+    cwdTrackingActive,
     explorerBackend,
     loadDirectory,
   ]);
@@ -2167,7 +2178,7 @@ function FileExplorerPane({
       const normalizedCwd = normalizeExplorerPath(cwd, backend);
       if (
         normalizedCwd &&
-        normalizedCwd !== normalizeExplorerPath(currentPathRef.current, backend)
+        !isSameExplorerDirectory(normalizedCwd, currentPathRef.current, backend)
       ) {
         loadDirectory(normalizedCwd);
       }
