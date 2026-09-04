@@ -223,6 +223,10 @@ function HeaderStatusDivider() {
   );
 }
 
+export function preventWindowControlMouseFocus(event: React.MouseEvent<HTMLButtonElement>) {
+  event.preventDefault();
+}
+
 function formatPct(value: number | null): string {
   if (value == null) return "--";
   return `${Math.round(Math.min(100, Math.max(0, value)))}%`;
@@ -1970,6 +1974,7 @@ export default function Header({
               variant="ghost"
               className="rounded-none h-10 w-[46px] px-0 text-[var(--df-text-muted)] transition-colors hover:!bg-[color-mix(in_srgb,var(--df-text)_10%,transparent)] hover:!text-[var(--df-text)]"
               aria-label={t("menu.minimize")}
+              onMouseDown={preventWindowControlMouseFocus}
               onClick={handleMinimizeWindow}
             >
               <VscChromeMinimize className="text-base" />
@@ -1980,6 +1985,7 @@ export default function Header({
               variant="ghost"
               className="rounded-none h-10 w-[46px] px-0 text-[var(--df-text-muted)] transition-colors hover:!bg-[color-mix(in_srgb,var(--df-text)_10%,transparent)] hover:!text-[var(--df-text)]"
               aria-label={isMaximized ? t("menu.restore") : t("menu.maximize")}
+              onMouseDown={preventWindowControlMouseFocus}
               onClick={handleToggleMaximizeWindow}
             >
               {isMaximized ? (
@@ -1994,6 +2000,7 @@ export default function Header({
               variant="ghost"
               className="rounded-none h-10 w-[46px] px-0 text-[var(--df-text-muted)] transition-colors hover:!bg-[#e81123] hover:!text-white"
               aria-label={t("common.close")}
+              onMouseDown={preventWindowControlMouseFocus}
               onClick={handleCloseWindow}
             >
               <VscChromeClose className="text-base" />
