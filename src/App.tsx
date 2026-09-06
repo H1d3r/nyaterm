@@ -3245,7 +3245,7 @@ function App() {
     activeRemoteStatsEnabled,
     uiConfig.remote_stats_interval ?? 3,
   );
-  const networkHistory = useNetworkHistory(
+  const networkHistoryStore = useNetworkHistory(
     remoteStats.sessionId,
     remoteStats.stats,
   );
@@ -3672,7 +3672,7 @@ function App() {
         activeStatsSessionId={activeStatsSessionId}
         remoteStatsEnabled={activeRemoteStatsEnabled}
         remoteStats={remoteStats}
-        networkHistory={networkHistory}
+        networkHistoryStore={networkHistoryStore}
         gpuMonitorEnabled={uiConfig.show_gpu_monitor ?? false}
         gpuOverviewState={gpuOverviewState}
         npuMonitorEnabled={uiConfig.show_ascend_npu_monitor ?? false}
@@ -3703,7 +3703,7 @@ function App() {
       activeRemoteStatsEnabled,
       canReconnectSessionById,
       remoteStats,
-      networkHistory,
+      networkHistoryStore,
       gpuOverviewState,
       npuOverviewState,
       handleSaveSessionTranscript,

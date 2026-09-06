@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { RemoteStats } from "@/types/global";
 
 export const MAX_NETWORK_HISTORY_POINTS = 60;
@@ -12,6 +12,11 @@ export interface NetworkHistoryPoint {
 export interface NetworkHistorySeries {
   summary: NetworkHistoryPoint[];
   interfaces: Record<string, NetworkHistoryPoint[]>;
+}
+
+export interface NetworkHistoryStore {
+  getSeries: (sessionId: string | null) => NetworkHistorySeries;
+  subscribe: (listener: () => void) => () => void;
 }
 
 const EMPTY_NETWORK_HISTORY: NetworkHistorySeries = {
@@ -32,10 +37,26 @@ function appendPoint(
 export function useNetworkHistory(
   sessionId: string | null,
   stats: RemoteStats | null,
-): NetworkHistorySeries {
+): NetworkHistoryStore {
   const historiesRef = useRef(new Map<string, NetworkHistorySeries>());
   const lastStatsRef = useRef(new Map<string, RemoteStats>());
-  const [, setRevision] = useState(0);
+  const listenersRef = useRef(new Set<() => void>());
+  const storeRef = useRef<NetworkHistoryStore | null>(null);
+
+  if (!storeRef.current) {
+    storeRef.current = {
+      getSeries: (targetSessionId) => {
+        if (!targetSessionId) return EMPTY_NETWORK_HISTORY;
+        return historiesRef.current.get(targetSessionId) ?? EMPTY_NETWORK_HISTORY;
+      },
+      subscribe: (listener) => {
+        listenersRef.current.add(listener);
+        return () => {
+          listenersRef.current.delete(listener);
+        };
+      },
+    };
+  }
 
   useEffect(() => {
     if (!sessionId || !stats || lastStatsRef.current.get(sessionId) === stats) return;
@@ -61,9 +82,21 @@ export function useNetworkHistory(
       }),
       interfaces,
     });
-    setRevision((revision) => revision + 1);
+    for (const listener of listenersRef.current) {
+      listener();
+    }
   }, [sessionId, stats]);
 
-  if (!sessionId) return EMPTY_NETWORK_HISTORY;
-  return historiesRef.current.get(sessionId) ?? EMPTY_NETWORK_HISTORY;
+  return storeRef.current;
+}
+
+export function useNetworkHistorySeries(
+  store: NetworkHistoryStore,
+  sessionId: string | null,
+): NetworkHistorySeries {
+  return useSyncExternalStore(
+    store.subscribe,
+    () => store.getSeries(sessionId),
+    () => store.getSeries(sessionId),
+  );
 }

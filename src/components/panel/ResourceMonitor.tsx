@@ -20,7 +20,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { NetworkHistorySeries } from "@/hooks/useNetworkHistory";
+import {
+  type NetworkHistoryStore,
+  useNetworkHistorySeries,
+} from "@/hooks/useNetworkHistory";
 import type { RemoteStatsState } from "@/hooks/useRemoteStats";
 import NetworkTrafficChart, { formatNetworkRate } from "./NetworkTrafficChart";
 
@@ -178,16 +181,17 @@ interface ResourceMonitorProps {
   activeSessionId: string | null;
   enabled: boolean;
   remoteStats: RemoteStatsState;
-  networkHistory: NetworkHistorySeries;
+  networkHistoryStore: NetworkHistoryStore;
 }
 
 export default function ResourceMonitor({
   activeSessionId,
   enabled,
   remoteStats,
-  networkHistory,
+  networkHistoryStore,
 }: ResourceMonitorProps) {
   const { t } = useTranslation();
+  const networkHistory = useNetworkHistorySeries(networkHistoryStore, activeSessionId);
   const [cpuExpanded, setCpuExpanded] = useState(false);
   const [selectedNetworkInterfaces, setSelectedNetworkInterfaces] = useState<Record<string, string>>(
     {},

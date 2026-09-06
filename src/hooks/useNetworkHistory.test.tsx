@@ -1,7 +1,11 @@
 import { renderHook, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { RemoteStats } from "@/types/global";
-import { MAX_NETWORK_HISTORY_POINTS, useNetworkHistory } from "./useNetworkHistory";
+import {
+  MAX_NETWORK_HISTORY_POINTS,
+  useNetworkHistory,
+  useNetworkHistorySeries,
+} from "./useNetworkHistory";
 
 describe("useNetworkHistory", () => {
   it("appends new samples and does not duplicate the same stats object", async () => {
@@ -11,13 +15,13 @@ describe("useNetworkHistory", () => {
       { initialProps: { stats: first } },
     );
 
-    await waitFor(() => expect(result.current.summary).toHaveLength(1));
+    await waitFor(() => expect(result.current.getSeries("session-a").summary).toHaveLength(1));
     rerender({ stats: first });
-    expect(result.current.summary).toHaveLength(1);
+    expect(result.current.getSeries("session-a").summary).toHaveLength(1);
 
     rerender({ stats: remoteStats(200, 20, [{ nic: "eth0", rx: 120, tx: 12 }]) });
-    await waitFor(() => expect(result.current.summary).toHaveLength(2));
-    expect(result.current.summary.map((point) => [point.rx, point.tx])).toEqual([
+    await waitFor(() => expect(result.current.getSeries("session-a").summary).toHaveLength(2));
+    expect(result.current.getSeries("session-a").summary.map((point) => [point.rx, point.tx])).toEqual([
       [100, 10],
       [200, 20],
     ]);
@@ -33,9 +37,12 @@ describe("useNetworkHistory", () => {
       rerender({ stats: remoteStats(i, i * 10) });
     }
 
-    await waitFor(() => expect(result.current.summary).toHaveLength(MAX_NETWORK_HISTORY_POINTS));
-    expect(result.current.summary[0]?.rx).toBe(1);
-    expect(result.current.summary[result.current.summary.length - 1]?.rx).toBe(
+    await waitFor(() =>
+      expect(result.current.getSeries("session-a").summary).toHaveLength(MAX_NETWORK_HISTORY_POINTS),
+    );
+    const summary = result.current.getSeries("session-a").summary;
+    expect(summary[0]?.rx).toBe(1);
+    expect(summary[summary.length - 1]?.rx).toBe(
       MAX_NETWORK_HISTORY_POINTS,
     );
   });
@@ -47,17 +54,17 @@ describe("useNetworkHistory", () => {
       { initialProps: { sessionId: "session-a", stats: remoteStats(10, 1) } },
     );
 
-    await waitFor(() => expect(result.current.summary).toHaveLength(1));
+    await waitFor(() => expect(result.current.getSeries("session-a").summary).toHaveLength(1));
     rerender({ sessionId: "session-a", stats: secondA });
-    await waitFor(() => expect(result.current.summary).toHaveLength(2));
+    await waitFor(() => expect(result.current.getSeries("session-a").summary).toHaveLength(2));
 
     rerender({ sessionId: "session-b", stats: remoteStats(30, 3) });
-    await waitFor(() => expect(result.current.summary).toHaveLength(1));
-    expect(result.current.summary[0]?.rx).toBe(30);
+    await waitFor(() => expect(result.current.getSeries("session-b").summary).toHaveLength(1));
+    expect(result.current.getSeries("session-b").summary[0]?.rx).toBe(30);
 
     rerender({ sessionId: "session-a", stats: secondA });
-    expect(result.current.summary).toHaveLength(2);
-    expect(result.current.summary.map((point) => point.rx)).toEqual([10, 20]);
+    expect(result.current.getSeries("session-a").summary).toHaveLength(2);
+    expect(result.current.getSeries("session-a").summary.map((point) => point.rx)).toEqual([10, 20]);
   });
 
   it("keeps per-interface histories independent", async () => {
@@ -73,24 +80,61 @@ describe("useNetworkHistory", () => {
       },
     );
 
-    await waitFor(() => expect(result.current.interfaces.eth0).toHaveLength(1));
+    await waitFor(() =>
+      expect(result.current.getSeries("session-a").interfaces.eth0).toHaveLength(1),
+    );
     rerender({
       stats: remoteStats(120, 12, [{ nic: "eth0", rx: 120, tx: 12 }]),
     });
 
-    await waitFor(() => expect(result.current.interfaces.eth0).toHaveLength(2));
-    expect(result.current.interfaces.eth0?.map((point) => point.rx)).toEqual([60, 120]);
-    expect(result.current.interfaces.docker0?.map((point) => point.rx)).toEqual([40]);
+    await waitFor(() =>
+      expect(result.current.getSeries("session-a").interfaces.eth0).toHaveLength(2),
+    );
+    const interfaces = result.current.getSeries("session-a").interfaces;
+    expect(interfaces.eth0?.map((point) => point.rx)).toEqual([60, 120]);
+    expect(interfaces.docker0?.map((point) => point.rx)).toEqual([40]);
   });
 
   it("records summary from network_summary instead of deriving it from a NIC", async () => {
     const stats = remoteStats(999, 111, [{ nic: "eth0", rx: 10, tx: 20 }]);
     const { result } = renderHook(() => useNetworkHistory("session-a", stats));
 
-    await waitFor(() => expect(result.current.summary).toHaveLength(1));
-    expect(result.current.summary[0]).toEqual(
+    await waitFor(() => expect(result.current.getSeries("session-a").summary).toHaveLength(1));
+    expect(result.current.getSeries("session-a").summary[0]).toEqual(
       expect.objectContaining({ rx: 999, tx: 111 }),
     );
+  });
+
+  it("does not trigger an extra collector render when a sample is recorded", async () => {
+    let renderCount = 0;
+    const { result, rerender } = renderHook(
+      ({ stats }) => {
+        renderCount += 1;
+        return useNetworkHistory("session-a", stats);
+      },
+      { initialProps: { stats: remoteStats(10, 1) } },
+    );
+
+    await waitFor(() => expect(result.current.getSeries("session-a").summary).toHaveLength(1));
+    expect(renderCount).toBe(1);
+
+    rerender({ stats: remoteStats(20, 2) });
+    await waitFor(() => expect(result.current.getSeries("session-a").summary).toHaveLength(2));
+    expect(renderCount).toBe(2);
+  });
+
+  it("updates a subscribed series when the store records a sample", async () => {
+    const { result, rerender } = renderHook(
+      ({ stats }) => {
+        const store = useNetworkHistory("session-a", stats);
+        return useNetworkHistorySeries(store, "session-a");
+      },
+      { initialProps: { stats: remoteStats(10, 1) } },
+    );
+
+    await waitFor(() => expect(result.current.summary).toHaveLength(1));
+    rerender({ stats: remoteStats(20, 2) });
+    await waitFor(() => expect(result.current.summary.map((point) => point.rx)).toEqual([10, 20]));
   });
 });
 

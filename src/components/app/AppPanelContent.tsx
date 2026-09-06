@@ -16,7 +16,7 @@ import ResourceMonitor from "@/components/panel/ResourceMonitor";
 import SyncBackupHistoryPanel from "@/components/panel/SyncBackupHistoryPanel";
 import SavedConnections from "@/components/panel/saved-connections";
 import SecurityAuthPanel from "@/components/panel/security-auth";
-import type { NetworkHistorySeries } from "@/hooks/useNetworkHistory";
+import type { NetworkHistoryStore } from "@/hooks/useNetworkHistory";
 import type { RemoteGpuOverviewState } from "@/hooks/useRemoteGpuOverview";
 import type { RemoteNpuOverviewState } from "@/hooks/useRemoteNpuOverview";
 import type { RemoteStatsState } from "@/hooks/useRemoteStats";
@@ -38,7 +38,7 @@ interface AppPanelContentProps {
   activeStatsSessionId: string | null;
   remoteStatsEnabled: boolean;
   remoteStats: RemoteStatsState;
-  networkHistory: NetworkHistorySeries;
+  networkHistoryStore: NetworkHistoryStore;
   gpuMonitorEnabled: boolean;
   gpuOverviewState: RemoteGpuOverviewState;
   npuMonitorEnabled: boolean;
@@ -75,7 +75,7 @@ export default function AppPanelContent({
   activeStatsSessionId,
   remoteStatsEnabled,
   remoteStats,
-  networkHistory,
+  networkHistoryStore,
   gpuMonitorEnabled,
   gpuOverviewState,
   npuMonitorEnabled,
@@ -183,7 +183,7 @@ export default function AppPanelContent({
             activeSessionId={activeStatsSessionId}
             enabled={remoteStatsEnabled}
             remoteStats={remoteStats}
-            networkHistory={networkHistory}
+            networkHistoryStore={networkHistoryStore}
           />
         );
       case "gpuMonitor":

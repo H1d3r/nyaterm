@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { NetworkHistorySeries } from "@/hooks/useNetworkHistory";
+import type { NetworkHistorySeries, NetworkHistoryStore } from "@/hooks/useNetworkHistory";
 import type { RemoteStatsState } from "@/hooks/useRemoteStats";
 import type { RemoteStats } from "@/types/global";
 import ResourceMonitor from "./ResourceMonitor";
@@ -134,9 +134,16 @@ function resourceMonitor(
       activeSessionId={sessionId}
       enabled
       remoteStats={remoteStats}
-      networkHistory={networkHistory}
+      networkHistoryStore={historyStore(networkHistory)}
     />
   );
+}
+
+function historyStore(networkHistory: NetworkHistorySeries): NetworkHistoryStore {
+  return {
+    getSeries: () => networkHistory,
+    subscribe: () => () => {},
+  };
 }
 
 function historyPoints(rx: number, tx: number) {
