@@ -61,7 +61,7 @@ describe("useTerminalRefreshEffects", () => {
     expect(activeRefresh).not.toHaveProperty("clearTextureAtlas");
   });
 
-  it("forces fit and repaint when the native window regains focus", async () => {
+  it("forces fit and repaint without stealing focus when the native window regains focus", async () => {
     const schedule = vi.fn();
     renderHook(() =>
       useTerminalRefreshEffects({
@@ -92,7 +92,7 @@ describe("useTerminalRefreshEffects", () => {
         force: true,
         refresh: true,
         clearTextureAtlas: false,
-        focus: true,
+        focus: false,
       }),
     );
   });
