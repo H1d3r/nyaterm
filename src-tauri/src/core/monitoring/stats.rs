@@ -561,11 +561,25 @@ if [ -r /proc/net/dev ]; then
     [ -n "$nic" ] || continue;
     [ "$nic" != "lo" ] || continue;
     case "$nic" in
-      docker*|veth*|br-*|virbr*|flannel*|cali*|tunl*|kube-ipvs0|cni*|zt*|tailscale*|wg*|tap*|vnet*)
+      docker*|veth*|br-*|virbr*|flannel*|cali*|tun*|tap*|vnet*|kube-ipvs0|cni*|zt*|tailscale*|wg*|dummy*|ifb*|sit*|gre*|gretap*|ip6tnl*|vxlan*|geneve*|erspan*)
         continue;
         ;;
     esac;
-    [ -e "/sys/class/net/$nic/device" ] || continue;
+    if [ ! -e "/sys/class/net/$nic/device" ]; then
+      derived=false;
+      [ -d "/sys/class/net/$nic/bridge" ] && derived=true;
+      [ -d "/sys/class/net/$nic/bonding" ] && derived=true;
+      [ -d "/sys/class/net/$nic/team" ] && derived=true;
+      if [ "$derived" = false ]; then
+        for lower in "/sys/class/net/$nic"/lower_*; do
+          if [ -e "$lower" ]; then
+            derived=true;
+            break;
+          fi;
+        done;
+      fi;
+      [ "$derived" = false ] || continue;
+    fi;
 
     set -- $counter_fields;
     rx=${1:-0};
@@ -575,7 +589,14 @@ if [ -r /proc/net/dev ]; then
     if [ -r "/sys/class/net/$nic/operstate" ]; then
       IFS= read -r state <"/sys/class/net/$nic/operstate" || state=unknown;
     fi;
-    [ "$state" = "up" ] || continue;
+    [ -n "$state" ] || state=unknown;
+    carrier=0;
+    if [ -r "/sys/class/net/$nic/carrier" ]; then
+      IFS= read -r carrier <"/sys/class/net/$nic/carrier" || carrier=0;
+    fi;
+    if [ "$state" != "up" ] && [ "$carrier" != "1" ]; then
+      continue;
+    fi;
 
     printf "NETDEV\t%s\t%s\t%s\t%s\n" "$nic" "$state" "${rx:-0}" "${tx:-0}";
   done </proc/net/dev;
@@ -852,11 +873,25 @@ if [ -r /proc/net/dev ]; then
     [ -n "$nic" ] || continue;
     [ "$nic" != "lo" ] || continue;
     case "$nic" in
-      docker*|veth*|br-*|virbr*|flannel*|cali*|tunl*|kube-ipvs0|cni*|zt*|tailscale*|wg*|tap*|vnet*)
+      docker*|veth*|br-*|virbr*|flannel*|cali*|tun*|tap*|vnet*|kube-ipvs0|cni*|zt*|tailscale*|wg*|dummy*|ifb*|sit*|gre*|gretap*|ip6tnl*|vxlan*|geneve*|erspan*)
         continue;
         ;;
     esac;
-    [ -e "/sys/class/net/$nic/device" ] || continue;
+    if [ ! -e "/sys/class/net/$nic/device" ]; then
+      derived=false;
+      [ -d "/sys/class/net/$nic/bridge" ] && derived=true;
+      [ -d "/sys/class/net/$nic/bonding" ] && derived=true;
+      [ -d "/sys/class/net/$nic/team" ] && derived=true;
+      if [ "$derived" = false ]; then
+        for lower in "/sys/class/net/$nic"/lower_*; do
+          if [ -e "$lower" ]; then
+            derived=true;
+            break;
+          fi;
+        done;
+      fi;
+      [ "$derived" = false ] || continue;
+    fi;
 
     set -- $counter_fields;
     rx=${1:-0};
@@ -866,7 +901,14 @@ if [ -r /proc/net/dev ]; then
     if [ -r "/sys/class/net/$nic/operstate" ]; then
       IFS= read -r state <"/sys/class/net/$nic/operstate" || state=unknown;
     fi;
-    [ "$state" = "up" ] || continue;
+    [ -n "$state" ] || state=unknown;
+    carrier=0;
+    if [ -r "/sys/class/net/$nic/carrier" ]; then
+      IFS= read -r carrier <"/sys/class/net/$nic/carrier" || carrier=0;
+    fi;
+    if [ "$state" != "up" ] && [ "$carrier" != "1" ]; then
+      continue;
+    fi;
 
     printf "NETDEV\t%s\t%s\t%s\t%s\n" "$nic" "$state" "${rx:-0}" "${tx:-0}";
   done </proc/net/dev;
@@ -1218,6 +1260,33 @@ mod tests {
         assert!(script.contains("/proc/meminfo"));
         assert!(script.contains("/proc/net/dev"));
         assert!(script.contains("/sys/class/net"));
+    }
+
+    #[test]
+    fn network_probe_keeps_main_virtual_nics_and_filters_derived_interfaces() {
+        for plan in [
+            StatsProbePlan {
+                include_static: false,
+                include_disk: false,
+            },
+            StatsProbePlan {
+                include_static: true,
+                include_disk: true,
+            },
+        ] {
+            let script = build_stats_script(plan);
+
+            assert!(!script.contains("[ -e \"/sys/class/net/$nic/device\" ] || continue"));
+            assert!(script.contains("if [ ! -e \"/sys/class/net/$nic/device\" ]; then"));
+            assert!(script.contains("/sys/class/net/$nic/bridge"));
+            assert!(script.contains("/sys/class/net/$nic/bonding"));
+            assert!(script.contains("/sys/class/net/$nic/team"));
+            assert!(script.contains("\"/sys/class/net/$nic\"/lower_*"));
+            assert!(script.contains("/sys/class/net/$nic/carrier"));
+            assert!(
+                script.contains("if [ \"$state\" != \"up\" ] && [ \"$carrier\" != \"1\" ]; then")
+            );
+        }
     }
 
     #[test]
