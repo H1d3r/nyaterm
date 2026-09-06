@@ -35,6 +35,7 @@ function renderFileExplorer(activePane: FileDocumentPane) {
       activeStatsSessionId={null}
       remoteStatsEnabled={false}
       remoteStats={{} as RemoteStatsState}
+      networkHistory={{ summary: [], interfaces: {} }}
       gpuMonitorEnabled={false}
       gpuOverviewState={{} as RemoteGpuOverviewState}
       npuMonitorEnabled={false}
