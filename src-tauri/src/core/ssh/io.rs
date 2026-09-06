@@ -4,6 +4,7 @@ use super::client::{
 use crate::config::SftpCwdFollowMode;
 use crate::core::capture::OutputCaptureProcessor;
 use crate::core::input::remap_del_to_bs;
+use crate::core::monitoring::stats::RemoteStatsSampler;
 use crate::core::ssh::osc::{self, OscStripper, ShellKind};
 use crate::core::terminal_session::local::split_startup_passthrough;
 use crate::core::terminal_session::{TerminalOutputDecoder, encode_terminal_input};
@@ -1611,6 +1612,9 @@ pub(super) async fn ssh_io_loop(
     }
 
     manager.remove_session(&session_id).await;
+    if let Some(stats_sampler) = app.try_state::<Arc<RemoteStatsSampler>>() {
+        stats_sampler.clear_session(&session_id).await;
+    }
 
     if let Some(ref conn_id) = connection_id {
         if let Some(tunnel_mgr) = app.try_state::<Arc<super::TunnelManager>>() {
