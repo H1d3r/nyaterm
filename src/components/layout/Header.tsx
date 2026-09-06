@@ -1480,8 +1480,10 @@ export default function Header({
             item.action?.();
           }}
         >
-          {item.icon && (
-            <DynamicIcon name={item.icon} className="text-[1rem] text-[var(--df-text-muted)]" />
+          {!item.checked && item.icon && (
+            <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
+              <DynamicIcon name={item.icon} className="text-[1rem] text-[var(--df-text-muted)]" />
+            </span>
           )}
           <span className="flex-1">{item.label}</span>
           {item.shortcut && <MenubarShortcut>{item.shortcut}</MenubarShortcut>}
