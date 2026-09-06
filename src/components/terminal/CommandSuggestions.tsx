@@ -84,7 +84,7 @@ function SuggestionText({
     if (el) {
       setTruncated(el.scrollWidth > el.clientWidth);
     }
-  });
+  }, [result.display]);
 
   if (!truncated) {
     return (
@@ -108,7 +108,7 @@ function SuggestionText({
       </TooltipTrigger>
       <TooltipContent
         side="top"
-        className="max-w-[600px]"
+        className="z-[10000] max-w-[600px]"
         onMouseDown={(e) => e.preventDefault()}
       >
         <span className="font-mono text-[0.75rem] break-all">{result.command}</span>
