@@ -15,12 +15,12 @@ body:
     attributes:
       value: |
         此表单仅用于报告当前稳定版本中的 Bug。
-        如果你使用的是 GPUI Preview 版本（例如 `v2.0.0-preview.1`），请使用 [GPUI Preview Bug 表单](https://github.com/nyakang/nyaterm/issues/new?template=gpui_preview_bug.yml)。
-        如果你想提出新功能或改进建议，请使用 [功能建议表单](https://github.com/nyakang/nyaterm/issues/new?template=feature_request.yml)。
+        如果你使用的是 GPUI Preview 版本（例如 `v2.0.0-preview.1`），请使用 [GPUI Preview Bug 表单](https://github.com/nyakang/nyaterm/issues/new?template=01_gpui_preview_bug.yml)。
+        如果你想提出新功能或改进建议，请使用 [功能建议表单](https://github.com/nyakang/nyaterm/issues/new?template=03_feature_request.yml)。
 
         This form is only for reporting bugs in the current stable release.
-        If you are using a GPUI Preview release (for example `v2.0.0-preview.1`), please use the [GPUI Preview bug report](https://github.com/nyakang/nyaterm/issues/new?template=gpui_preview_bug.yml).
-        If you have a feature or enhancement request, please use the [feature request](https://github.com/nyakang/nyaterm/issues/new?template=feature_request.yml).
+        If you are using a GPUI Preview release (for example `v2.0.0-preview.1`), please use the [GPUI Preview bug report](https://github.com/nyakang/nyaterm/issues/new?template=01_gpui_preview_bug.yml).
+        If you have a feature or enhancement request, please use the [feature request](https://github.com/nyakang/nyaterm/issues/new?template=03_feature_request.yml).
 
   - type: textarea
     id: bug
