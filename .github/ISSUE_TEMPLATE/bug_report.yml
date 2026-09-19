@@ -1,5 +1,5 @@
-name: 🐛 Report an issue
-description: Report an issue with NyaTerm
+name: 🐛 Stable release bug
+description: Report an issue with the current stable release of NyaTerm
 title: "[Bug]: "
 labels: ["bug"]
 
@@ -14,7 +14,8 @@ body:
   - type: markdown
     attributes:
       value: |
-        This issue form is for reporting bugs only!
+        This issue form is for reporting bugs in the current stable release.
+        If you are using a GPUI Preview release (for example `v2.0.0-preview.1`), please use the [GPUI Preview bug report](https://github.com/nyakang/nyaterm/issues/new?template=gpui_preview_bug.yml).
         If you have a feature or enhancement request, please use the [feature request](https://github.com/nyakang/nyaterm/issues/new?template=feature_request.yml).
 
   - type: textarea

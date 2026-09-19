@@ -1,0 +1,163 @@
+name: 🧪 GPUI Preview bug
+description: Report a reproducible issue in a NyaTerm GPUI Preview release
+title: "[GPUI Preview Bug]: "
+labels: ["bug", "gpui-preview", "needs-triage"]
+
+body:
+  - type: checkboxes
+    id: preview-checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing open and closed issues and did not find a duplicate.
+          required: true
+        - label: I am using a GPUI Preview release of NyaTerm.
+          required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing NyaTerm GPUI Preview.
+
+        Please remove passwords, private keys, access tokens, host credentials, and other sensitive information from logs and screenshots before submitting.
+
+  - type: input
+    id: version
+    validations:
+      required: true
+    attributes:
+      label: NyaTerm Preview version
+      description: Use the version shown in NyaTerm or in the downloaded release.
+      placeholder: v2.0.0-preview.1
+
+  - type: dropdown
+    id: platform
+    validations:
+      required: true
+    attributes:
+      label: Platform
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Other
+
+  - type: input
+    id: os-version
+    validations:
+      required: true
+    attributes:
+      label: OS version
+      placeholder: Windows 11 24H2, macOS 26, Ubuntu 24.04...
+
+  - type: dropdown
+    id: architecture
+    validations:
+      required: true
+    attributes:
+      label: Architecture
+      options:
+        - x86_64 / x64
+        - arm64 / aarch64
+        - Other / unknown
+
+  - type: dropdown
+    id: package
+    validations:
+      required: true
+    attributes:
+      label: Installation package
+      options:
+        - Windows installer
+        - Windows portable
+        - macOS package
+        - Linux AppImage
+        - Linux deb
+        - Linux rpm
+        - Built from source
+        - Other
+
+  - type: dropdown
+    id: area
+    validations:
+      required: true
+    attributes:
+      label: Affected area
+      multiple: true
+      options:
+        - Terminal
+        - SSH / Telnet / Serial
+        - SFTP / File Transfer
+        - File Explorer
+        - RDP
+        - VNC
+        - AI Assistant
+        - Settings
+        - Sync / Backup
+        - Window / UI
+        - Installer / Updater
+        - Other
+
+  - type: textarea
+    id: problem
+    validations:
+      required: true
+    attributes:
+      label: What happened?
+      description: Describe the actual behavior and its impact.
+
+  - type: textarea
+    id: expected
+    validations:
+      required: true
+    attributes:
+      label: Expected behavior
+      description: Describe what you expected NyaTerm to do.
+
+  - type: textarea
+    id: repro
+    validations:
+      required: true
+    attributes:
+      label: Reproduction steps
+      description: Provide the shortest reliable sequence that reproduces the issue.
+      value: |
+        1.
+        2.
+        3.
+
+  - type: dropdown
+    id: stable
+    validations:
+      required: true
+    attributes:
+      label: Does this also happen in the stable version?
+      description: This helps distinguish GPUI regressions from existing behavior.
+      options:
+        - "No"
+        - "Yes"
+        - Not tested
+        - Not applicable
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: Paste relevant logs after removing secrets and sensitive information.
+      render: shell
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots or recordings
+      description: Drag and drop screenshots or recordings here if they help explain the issue.
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional information
+      description: Add any other context that may help reproduce or diagnose the issue.
+
+  - type: markdown
+    attributes:
+      value: Thank you for helping improve NyaTerm GPUI Preview.
