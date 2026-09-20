@@ -28,10 +28,12 @@ import {
   findSessionPaneById,
   getFirstSessionPane,
   getNextPersistOrder,
-  insertTabAfter,
-  moveTab,
-  removeSessionPane,
-  replaceSessionReferences as replacePaneSessionReferences,
+    insertTabAfter,
+    moveTab,
+    removeSessionPane,
+    replaceSessionReferences as replacePaneSessionReferences,
+    resolveFileDocumentInsertAfterTabId,
+    resolveNextActiveTabAfterFileDocumentClose,
   restoreTabFromPersistence,
   serializeTabsForPersistence,
   splitSessionPane,
@@ -868,7 +870,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       const pane = createFileDocumentPane(input);
       const tab = createWorkspaceTab(pane, getNextPersistOrder(tabsRef.current));
-      void commitTabs([...tabsRef.current, tab]);
+      const afterTabId = resolveFileDocumentInsertAfterTabId(
+        tabsRef.current,
+        input.sessionId,
+        activeTabIdRef.current,
+      );
+      const nextTabs = afterTabId
+        ? insertTabAfter(tabsRef.current, afterTabId, tab)
+        : [...tabsRef.current, tab];
+      void commitTabs(nextTabs);
       setActiveTabId(tab.id);
       return { tabId: tab.id, paneId: pane.id, created: true };
     },
@@ -902,7 +912,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!nextRoot) {
         const nextTabs = currentTabs.filter((item) => item.id !== tabId);
         if (activeTabIdRef.current === tabId) {
-          const fallback = nextTabs[Math.max(0, index - 1)] ?? nextTabs[0] ?? null;
+          const fileReturnId = resolveNextActiveTabAfterFileDocumentClose(
+            currentTabs,
+            [tabId],
+            tabId,
+          );
+          const fallback =
+            (fileReturnId ? nextTabs.find((item) => item.id === fileReturnId) : null) ??
+            nextTabs[Math.max(0, index - 1)] ??
+            nextTabs[0] ??
+            null;
           setActiveTabId(fallback?.id ?? null);
         }
         void commitTabs(nextTabs, { immediatePersist: options?.immediatePersist });
@@ -962,9 +981,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
 
       if (!nextActiveTabId && currentActiveTabId && idsToClose.has(currentActiveTabId)) {
-        const activeIndex = currentTabs.findIndex((tab) => tab.id === currentActiveTabId);
-        const fallbackTab = nextTabs[Math.max(0, activeIndex - 1)] ?? nextTabs[0] ?? null;
-        nextActiveTabId = fallbackTab?.id ?? null;
+        const fileReturnId = resolveNextActiveTabAfterFileDocumentClose(
+          currentTabs,
+          idsToClose,
+          currentActiveTabId,
+        );
+        if (fileReturnId && nextTabs.some((tab) => tab.id === fileReturnId)) {
+          nextActiveTabId = fileReturnId;
+        } else {
+          const activeIndex = currentTabs.findIndex((tab) => tab.id === currentActiveTabId);
+          const fallbackTab = nextTabs[Math.max(0, activeIndex - 1)] ?? nextTabs[0] ?? null;
+          nextActiveTabId = fallbackTab?.id ?? null;
+        }
       }
 
       if (!nextActiveTabId && nextTabs.length > 0) {
