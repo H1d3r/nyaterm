@@ -14,6 +14,7 @@ vi.mock("@/context/AppContext", () => ({
     tabs: [],
     syncGroups: [],
     broadcastToAll: false,
+    isLocked: true,
     setSyncGroups: vi.fn(),
   }),
 }));
@@ -123,6 +124,7 @@ describe("PaneWorkspace RDP routing", () => {
         sessionId: "terminal-session",
         sessionType: "SSH",
         active: true,
+        appLocked: true,
         visible: true,
       }),
     );

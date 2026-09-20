@@ -40,6 +40,7 @@ interface InstallXTerminalKeyboardControllerParams {
   terminalAppSettingsRef: MutableRef<TerminalAppSettings>;
   sessionTypeRef: MutableRef<SessionType>;
   inputStateRef: MutableRef<TerminalInputState>;
+  appLockedRef: MutableRef<boolean>;
   disconnectedRef: MutableRef<boolean>;
   onDisconnectedCloseRequestedRef: MutableRef<(() => void) | undefined>;
   showSuggestionsRef: MutableRef<boolean>;
@@ -77,6 +78,7 @@ export function installXTerminalKeyboardController({
   terminalAppSettingsRef,
   sessionTypeRef,
   inputStateRef,
+  appLockedRef,
   disconnectedRef,
   onDisconnectedCloseRequestedRef,
   showSuggestionsRef,
@@ -116,6 +118,10 @@ export function installXTerminalKeyboardController({
 
   terminal.attachCustomKeyEventHandler((e) => {
     if (e.type !== "keydown") return true;
+    if (appLockedRef.current) {
+      e.preventDefault();
+      return false;
+    }
 
     if (isModifierOnlyKeyEvent(e)) {
       e.preventDefault();

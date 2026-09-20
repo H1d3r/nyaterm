@@ -130,6 +130,7 @@ import {
   createXTerminalDataOriginTracker,
   isSessionNotFoundError,
   resolveXTerminalDataOrigin,
+  shouldBlockXTerminalData,
 } from "./xterminalKeyboardInput";
 import {
   markTerminalUserInput,
@@ -169,6 +170,7 @@ export default function XTerminal({
   sessionId,
   sessionName,
   active,
+  appLocked,
   visible = true,
   sessionType,
   connectionId,
@@ -208,6 +210,8 @@ export default function XTerminal({
     null,
   );
   const aiCapturingRef = useRef(false);
+  const appLockedRef = useRef(appLocked);
+  appLockedRef.current = appLocked;
 
   const { terminalTheme } = useTheme();
   const { t } = useTranslation();
@@ -374,6 +378,7 @@ export default function XTerminal({
   );
 
   const pasteClipboard = useCallback(async () => {
+    if (appLockedRef.current) return;
     const pasteImageAsPathEnabled =
       terminalAppSettingsRef.current?.terminal?.paste_image_as_path ?? true;
     const currentSessionType = sessionTypeRef.current;
@@ -382,7 +387,7 @@ export default function XTerminal({
       try {
         const payload = await readClipboardPathPayload();
         const pathText = buildClipboardPathPasteText(payload);
-        if (pathText) {
+        if (pathText && !appLockedRef.current) {
           pasteTextRef.current(pathText, { skipDialog: true });
           return;
         }
@@ -394,7 +399,7 @@ export default function XTerminal({
     if (pasteImageAsPathEnabled && currentSessionType === "SSH") {
       try {
         const payload = await uploadClipboardImageToSsh(sessionIdRef.current);
-        if (payload?.remote_path) {
+        if (payload?.remote_path && !appLockedRef.current) {
           const quotedRemotePath = quotePosixPath(payload.remote_path);
           await sendSessionInput(sessionIdRef.current, quotedRemotePath, {
             preview: { kind: "data", data: quotedRemotePath },
@@ -408,6 +413,7 @@ export default function XTerminal({
     }
 
     const text = await readClipboardText();
+    if (appLockedRef.current) return;
     pasteTextRef.current(text);
   }, []);
 
@@ -675,6 +681,7 @@ export default function XTerminal({
 
   const applySuggestion = useCallback(
     (command: string, execute: boolean) => {
+      if (appLockedRef.current) return;
       const trackedState = inputStateRef.current;
       const replaceCurrentLine = trackedState.lineRewriteRequired;
       const input = replaceCurrentLine
@@ -1077,6 +1084,11 @@ export default function XTerminal({
       () => captureReconnectSnapshot(),
     );
     const isTerminalAlive = () => !disposed && terminalRef.current === terminal;
+    const focusTerminal = () => {
+      if (!appLockedRef.current && isTerminalAlive()) {
+        terminal.focus();
+      }
+    };
     const syncSuggestionsWithInputState = () => {
       if (canShowCommandSuggestions()) {
         triggerSearch();
@@ -1090,6 +1102,9 @@ export default function XTerminal({
       command: string | null,
       origin: "keyboard" | "terminal_response" = "keyboard",
     ) => {
+      if (shouldBlockXTerminalData(appLockedRef.current, origin)) {
+        return Promise.resolve();
+      }
       const peers = syncPeerSessionIdsRef.current;
       if (origin === "keyboard" && peers && peers.length > 0) {
         return sendSessionInputWithSync(sessionId, data, peers, {
@@ -1246,6 +1261,7 @@ export default function XTerminal({
         getSelectedText: () => terminal.getSelection(),
         getInputBuffer: () => inputStateRef.current.value,
         insertCommand: async (command) => {
+          if (appLockedRef.current) return;
           const input = buildReplaceInputData(command);
           await sendSessionInput(
             sessionId,
@@ -1257,9 +1273,10 @@ export default function XTerminal({
           );
         },
         executeCommand: async (command) => {
+          if (appLockedRef.current) return;
           await executeInputCommand(command);
         },
-        focus: () => terminal.focus(),
+        focus: focusTerminal,
       },
     );
 
@@ -1331,8 +1348,8 @@ export default function XTerminal({
       text: string,
       options: { skipDialog?: boolean } = {},
     ) => {
-      if (!text) return;
-      terminal.focus();
+      if (!text || appLockedRef.current) return;
+      focusTerminal();
       const showMultiLinePasteDialog =
         terminalAppSettingsRef.current?.terminal
           ?.show_multi_line_paste_dialog ?? true;
@@ -1376,10 +1393,10 @@ export default function XTerminal({
       const runPaste = () => {
         markTerminalUserInput(terminal);
         terminal.paste(text);
-        terminal.focus();
+        focusTerminal();
         requestAnimationFrame(() => {
           if (!isTerminalAlive()) return;
-          terminal.focus();
+          focusTerminal();
         });
       };
       if (pendingSelectionDelete) {
@@ -1589,6 +1606,7 @@ export default function XTerminal({
       replaceInputSelection,
       syncSuggestionsWithInputState,
       lastSelectionRef,
+      appLockedRef,
     });
 
     const blockedColorOscIds = new Set<number>();
@@ -1730,10 +1748,11 @@ export default function XTerminal({
     };
 
     clearAllRef.current = () => {
+      if (appLockedRef.current) return;
       lineTimestampsRef.current = new Map();
       gutterLineOffsetRef.current = 0;
       terminal.reset();
-      terminal.focus();
+      focusTerminal();
       requestGutterRefresh();
     };
 
@@ -1780,6 +1799,7 @@ export default function XTerminal({
       getFitAddon: () => fitAddonRef.current,
       getContainer: () => containerRef.current,
       isVisible: () => visibleRef.current && !hibernatedRef.current,
+      canFocus: () => !appLockedRef.current,
       onAfterFit: handleFitComplete,
     });
     fitSchedulerRef.current = fitScheduler;
@@ -1985,7 +2005,7 @@ export default function XTerminal({
             });
             break;
           case "focus":
-            terminal.focus();
+            focusTerminal();
             break;
           case "zmodem":
             if (
@@ -2087,6 +2107,7 @@ export default function XTerminal({
       alternateScreenTrackerRef,
       hibernationPhaseRef,
       detachedHibernateEpochRef,
+      appLockedRef,
       onConnectionErrorRef,
       tRef,
       isTerminalAlive,
@@ -2142,6 +2163,7 @@ export default function XTerminal({
         void sendRawInput(data, null, origin);
         return;
       }
+      if (shouldBlockXTerminalData(appLockedRef.current, origin)) return;
       if (aiCapturingRef.current) return;
       if (hibernationPhaseRef.current !== "idle") {
         requestWake("input");
@@ -2548,6 +2570,7 @@ export default function XTerminal({
     pendingFocusRestoreRef,
     activeRef,
     visibleRef,
+    appLocked,
     terminalReady,
     restoringSnapshot,
     hibernated,
@@ -2602,6 +2625,7 @@ export default function XTerminal({
     fitSchedulerRef,
     active,
     visible,
+    appLocked,
     terminalReady,
     performanceMode,
     sessionId,
@@ -2739,6 +2763,7 @@ export default function XTerminal({
         <TerminalContextMenu
           sessionId={sessionId}
           sessionName={sessionName}
+          appLocked={appLocked}
           terminalRef={terminalRef}
           onFind={doFind}
           onPasteText={handlePasteText}

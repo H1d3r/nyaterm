@@ -480,7 +480,7 @@ function PaneXTerminal({
   onToggleRecording?: (sessionId: string, mode?: RecordingMode) => Promise<void> | void;
   onSaveTranscript?: (sessionId: string, sessionName?: string) => Promise<void> | void;
 }) {
-  const { tabs, setSyncGroups } = useApp();
+  const { tabs, setSyncGroups, isLocked } = useApp();
 
   const syncPeerSessionIds = useMemo(() => {
     return getSessionInputPeerIds(sessionId, syncGroups, tabs, broadcastToAll).filter(
@@ -558,6 +558,7 @@ function PaneXTerminal({
       sessionId={sessionId}
       sessionName={sessionName}
       active={active}
+      appLocked={isLocked}
       visible={visible}
       sessionType={sessionType}
       connectionId={connectionId}

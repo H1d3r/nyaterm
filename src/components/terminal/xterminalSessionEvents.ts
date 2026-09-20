@@ -57,6 +57,7 @@ interface CreateXTerminalSessionEventsParams {
   }>;
   hibernationPhaseRef: MutableRef<HibernationPhase>;
   detachedHibernateEpochRef: MutableRef<number | null>;
+  appLockedRef: MutableRef<boolean>;
   onConnectionErrorRef: MutableRef<
     ((sessionId: string, error: string) => void) | undefined
   >;
@@ -108,6 +109,7 @@ export function createXTerminalSessionEvents({
   alternateScreenTrackerRef,
   hibernationPhaseRef,
   detachedHibernateEpochRef,
+  appLockedRef,
   onConnectionErrorRef,
   tRef,
   isTerminalAlive,
@@ -255,7 +257,9 @@ export function createXTerminalSessionEvents({
       () => {
         if (!isTerminalAlive()) return;
         requestWake("focus");
-        terminal.focus();
+        if (!appLockedRef.current) {
+          terminal.focus();
+        }
       },
     );
     if (!addUnlistener(nextFocusUnlisten)) return;

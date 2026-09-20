@@ -41,7 +41,7 @@ function createHarness(
   imeRoute: XTerminalImeKeyboardRoute,
   sessionType: SessionType = "Local",
   keybindings: Record<string, string> = {},
-  options: { isMacOS?: boolean } = {},
+  options: { isMacOS?: boolean; appLocked?: boolean } = {},
 ) {
   const keyHandlerRef: {
     current: ((event: KeyboardEvent) => boolean) | null;
@@ -77,6 +77,7 @@ function createHarness(
     },
     sessionTypeRef: { current: sessionType },
     inputStateRef,
+    appLockedRef: { current: options.appLocked ?? false },
     disconnectedRef: { current: false },
     onDisconnectedCloseRequestedRef: { current: undefined },
     showSuggestionsRef: { current: false },
@@ -122,6 +123,16 @@ beforeEach(() => {
 });
 
 describe("installXTerminalKeyboardController IME Backspace routing", () => {
+  it("swallows keyboard input before direct send paths while locked", () => {
+    const harness = createHarness("application", "Local", {}, { appLocked: true });
+    const event = backspaceEvent(8);
+
+    expect(harness.keyHandler(event)).toBe(false);
+    expect(event.defaultPrevented).toBe(true);
+    expect(harness.sendRawInput).not.toHaveBeenCalled();
+    expect(harness.inputStateRef.current.value).toBe("a");
+  });
+
   it("leaves IME Backspace native without preventing default", () => {
     const harness = createHarness("native-ime");
     const event = backspaceEvent(229, true);
