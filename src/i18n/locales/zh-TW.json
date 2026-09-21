@@ -1125,6 +1125,8 @@
     "unsupportedSessionDesc": "請切換到 SSH 標籤頁後再瀏覽遠端檔案。",
     "upload": "上傳檔案",
     "uploadFolder": "上傳資料夾",
+    "uploadFolderContents": "上傳資料夾內容",
+    "uploadFolderContentsEmpty": "所選資料夾中沒有可上傳的內容。",
     "uploadOnce": "上傳一次",
     "uploadPrompt": "遠端檔案已修改，是否上傳變更？"
   },

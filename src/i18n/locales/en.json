@@ -1126,6 +1126,8 @@
     "unsupportedSessionDesc": "Switch to an SSH tab to browse files.",
     "upload": "Upload Files",
     "uploadFolder": "Upload Folder",
+    "uploadFolderContents": "Upload Folder Contents",
+    "uploadFolderContentsEmpty": "The selected folder contains no items to upload.",
     "uploadOnce": "Upload Once",
     "uploadPrompt": "Remote file changed. Upload changes?"
   },
