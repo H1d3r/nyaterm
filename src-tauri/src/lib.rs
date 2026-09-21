@@ -148,6 +148,7 @@ pub fn run() {
             cmd::app::set_app_lock_state,
             cmd::app::open_child_window,
             cmd::app::open_transfer_target_directory,
+            cmd::app::resolve_local_directory_children,
             cmd::app::resolve_local_drop_paths,
             cmd::app::read_background_image_data_url,
             cmd::macos_menu::set_macos_app_menu,

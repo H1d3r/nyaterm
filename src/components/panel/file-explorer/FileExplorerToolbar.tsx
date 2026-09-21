@@ -67,6 +67,7 @@ interface FileExplorerToolbarProps {
   onNewFolder: () => void;
   onUploadFiles: () => void;
   onUploadFolder: () => void;
+  onUploadFolderContents: () => void;
   onDownloadSelected: () => void;
   onDeleteSelected: () => void;
   onGoUp: () => void;
@@ -94,6 +95,7 @@ export function FileExplorerToolbar({
   onNewFolder,
   onUploadFiles,
   onUploadFolder,
+  onUploadFolderContents,
   onDownloadSelected,
   onDeleteSelected,
   onGoUp,
@@ -162,6 +164,10 @@ export function FileExplorerToolbar({
               <DropdownMenuItem onClick={onUploadFolder}>
                 <MdDriveFolderUpload className="mr-2 h-4 w-4" />
                 {t("fileExplorer.uploadFolder")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={onUploadFolderContents}>
+                <MdDriveFolderUpload className="mr-2 h-4 w-4" />
+                {t("fileExplorer.uploadFolderContents")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

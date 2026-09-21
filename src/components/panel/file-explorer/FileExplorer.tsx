@@ -3205,6 +3205,38 @@ function FileExplorerPane({
     }
   };
 
+  const handleUploadFolderContents = async (directoryPath = currentPath) => {
+    if (!canUseRemoteTransfer) return;
+    const target = resolveUploadTarget(directoryPath);
+    if (!target) return;
+
+    try {
+      const localDirs = await openDialog({ directory: true, multiple: true });
+      if (!localDirs) return;
+      const pathList = (
+        Array.isArray(localDirs) ? localDirs : [localDirs]
+      ).filter((localDir): localDir is string => typeof localDir === "string");
+      const entries = await invoke<ResolvedLocalDropPathEntry[]>(
+        "resolve_local_directory_children",
+        { paths: pathList },
+      );
+      if (entries.length === 0) {
+        toast.info(t("fileExplorer.uploadFolderContentsEmpty"));
+        return;
+      }
+      uploadLocalEntriesToTarget(target, entries);
+    } catch (error) {
+      logger.error({
+        domain: "transfer.lifecycle",
+        event: "upload.folder_contents_failed",
+        message: "Upload folder contents failed",
+        ids: { session_id: target.sessionId },
+        error,
+      });
+      toast.error(String(error));
+    }
+  };
+
   const handleOpenExternal = async (
     entry: FileEntry,
     fullPath = getEntryFullPath(entry),
@@ -3862,6 +3894,11 @@ function FileExplorerPane({
           onUploadFolder={() =>
             handleUploadFolder(isTreeView ? getTreeOperationDirectoryPath() : undefined)
           }
+          onUploadFolderContents={() =>
+            handleUploadFolderContents(
+              isTreeView ? getTreeOperationDirectoryPath() : undefined,
+            )
+          }
           onDownloadSelected={() =>
             isTreeView
               ? handleTreeDownload(selectedTreeRows)
@@ -4166,6 +4203,7 @@ function FileExplorerPane({
                           showTransferActions={canUseRemoteTransfer}
                           onUpload={handleUploadFiles}
                           onUploadFolder={handleUploadFolder}
+                          onUploadFolderContents={handleUploadFolderContents}
                           onDownload={handleDownloadFromContextMenu}
                           showPeerSendAction={!!peerEndpoint && !!onSendEntries}
                           onSendToPeer={handleSendToPeer}
@@ -4286,6 +4324,9 @@ function FileExplorerPane({
             }
             onUpload={(path) => void handleUploadFiles(path)}
             onUploadFolder={(path) => void handleUploadFolder(path)}
+            onUploadFolderContents={(path) =>
+              void handleUploadFolderContents(path)
+            }
             onDownload={handleTreeDownload}
             onSendToPeer={handleTreeSendToPeer}
             onSendToTarget={handleTreeSendToTarget}
@@ -4336,6 +4377,12 @@ function FileExplorerPane({
                     <ContextMenuItem onClick={() => void handleUploadFolder()}>
                       <MdDriveFolderUpload className="mr-2 h-4 w-4" />
                       {t("fileExplorer.uploadFolder")}
+                    </ContextMenuItem>
+                    <ContextMenuItem
+                      onClick={() => void handleUploadFolderContents()}
+                    >
+                      <MdDriveFolderUpload className="mr-2 h-4 w-4" />
+                      {t("fileExplorer.uploadFolderContents")}
                     </ContextMenuItem>
                   </ContextMenuSubContent>
                 </ContextMenuSub>

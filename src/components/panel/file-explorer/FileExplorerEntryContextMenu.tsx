@@ -64,6 +64,7 @@ interface FileExplorerEntryContextMenuProps {
   onNewSymlink?: (directoryPath: string) => void;
   onUpload: (directoryPath: string) => void;
   onUploadFolder: (directoryPath: string) => void;
+  onUploadFolderContents: (directoryPath: string) => void;
   onDownload: (rows: FileExplorerTreeRow[]) => void;
   onSendToPeer?: (rows: FileExplorerTreeRow[]) => void;
   onSendToTarget?: (
@@ -204,6 +205,7 @@ export default function FileExplorerEntryContextMenu({
   onNewSymlink,
   onUpload,
   onUploadFolder,
+  onUploadFolderContents,
   onDownload,
   onSendToPeer,
   onSendToTarget,
@@ -318,6 +320,12 @@ export default function FileExplorerEntryContextMenu({
                       <ContextMenuItem onClick={() => onUploadFolder(targetDirectory)}>
                         <MdDriveFolderUpload className="text-[0.875rem] text-muted-foreground mr-2" />
                         {t("fileExplorer.uploadFolder")}
+                      </ContextMenuItem>
+                      <ContextMenuItem
+                        onClick={() => onUploadFolderContents(targetDirectory)}
+                      >
+                        <MdDriveFolderUpload className="text-[0.875rem] text-muted-foreground mr-2" />
+                        {t("fileExplorer.uploadFolderContents")}
                       </ContextMenuItem>
                     </ContextMenuSubContent>
                   </ContextMenuSub>

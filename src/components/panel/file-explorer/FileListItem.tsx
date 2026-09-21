@@ -40,6 +40,7 @@ interface FileListItemProps {
   showTransferActions: boolean;
   onUpload: () => void;
   onUploadFolder: () => void;
+  onUploadFolderContents: () => void;
   onDownload: (entry: FileEntry) => void;
   showPeerSendAction?: boolean;
   onSendToPeer?: (entry: FileEntry) => void;
@@ -106,6 +107,7 @@ export function FileListItem({
   showTransferActions,
   onUpload,
   onUploadFolder,
+  onUploadFolderContents,
   onDownload,
   showPeerSendAction = false,
   onSendToPeer,
@@ -460,6 +462,7 @@ export function FileListItem({
           onRefresh={() => onRefresh()}
           onUpload={() => onUpload()}
           onUploadFolder={() => onUploadFolder()}
+          onUploadFolderContents={() => onUploadFolderContents()}
           onDownload={(rows) => {
             const row = rows[0];
             if (row) onDownload(row.entry);
