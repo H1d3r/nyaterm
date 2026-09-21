@@ -36,6 +36,7 @@ import QuickCommands from "@/components/panel/QuickCommands";
 import SerialSendPanel from "@/components/panel/SendCommandPanel";
 import TabWindowsWorkspace from "@/components/terminal/TabWindowsWorkspace";
 import { useTheme } from "@/context/ThemeContext";
+import { hasVisibleActivityBarItems } from "@/lib/appWorkspace";
 import {
   buildBackgroundImageLayerStyle,
   buildSurfaceCssVariables,
@@ -246,14 +247,8 @@ export default function AppLayout({
     }),
     [effectiveAppearance, theme.colors, windowTransparencyEnabled],
   );
-  const hasLeftActivityItems =
-    leftActivityBar.items.length > 0 ||
-    (leftActivityBar.bottomItems?.length ?? 0) > 0 ||
-    (leftActivityBar.hiddenItems?.length ?? 0) > 0;
-  const hasRightActivityItems =
-    rightActivityBar.items.length > 0 ||
-    (rightActivityBar.bottomItems?.length ?? 0) > 0 ||
-    (rightActivityBar.hiddenItems?.length ?? 0) > 0;
+  const hasLeftActivityItems = hasVisibleActivityBarItems(leftActivityBar);
+  const hasRightActivityItems = hasVisibleActivityBarItems(rightActivityBar);
   const leftPanelOpen =
     hasLeftActivityItems &&
     (leftPanelIds.length > 0 || Boolean(leftOverlayPanelId));
