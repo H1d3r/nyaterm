@@ -633,6 +633,7 @@
     "rdpCertificateStrict": "拒絕不受信任憑證",
     "rdpCertificateTemporary": "僅本次接受",
     "rdpClipboard": "剪貼簿",
+    "rdpClipboardDisabled": "關閉",
     "rdpClipboardTextAndFiles": "文字和檔案",
     "rdpClipboardTextOnly": "僅文字",
     "rdpDisplay": "顯示",

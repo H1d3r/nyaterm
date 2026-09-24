@@ -634,6 +634,7 @@
     "rdpCertificateStrict": "Reject untrusted certificates",
     "rdpCertificateTemporary": "Accept for this session",
     "rdpClipboard": "Clipboard",
+    "rdpClipboardDisabled": "Off",
     "rdpClipboardTextAndFiles": "Text and files",
     "rdpClipboardTextOnly": "Text only",
     "rdpDisplay": "Display",
