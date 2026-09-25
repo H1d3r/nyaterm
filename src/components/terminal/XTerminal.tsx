@@ -94,6 +94,7 @@ import {
   TerminalResizeDeduper,
 } from "./terminalFitScheduler";
 import { installTerminalImageAddon } from "./terminalImageAddon";
+import { stampTerminalWrittenLines } from "./terminalLineTimestamps";
 import {
   getSelectedInputRange,
   type InputSelectionRange,
@@ -1811,22 +1812,14 @@ export default function XTerminal({
       if (!terminalAppSettingsRef.current?.terminal?.show_timestamps) return;
       if (terminal.buffer.active.type === "alternate") return;
 
-      const map = lineTimestampsRef.current;
-      const start = Math.min(from, to);
-      const end = Math.max(from, to);
-
-      for (let y = start; y <= end; y += 1) {
-        if (!map.has(y)) {
-          map.set(y, ts);
-        }
-      }
-
-      const keepFrom = Math.max(0, start - 3000);
-      for (const key of Array.from(map.keys())) {
-        if (key < keepFrom) {
-          map.delete(key);
-        }
-      }
+      stampTerminalWrittenLines(
+        lineTimestampsRef.current,
+        terminal,
+        gutterLineOffsetRef.current,
+        from,
+        to,
+        ts,
+      );
 
       if (performanceModeRef.current === "normal") {
         refreshGutter();
