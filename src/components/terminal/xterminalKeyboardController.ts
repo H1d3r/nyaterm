@@ -553,6 +553,7 @@ export function installXTerminalKeyboardController({
 
     const swallowIds = [
       "tab.newSession",
+      "tab.openNewSessionMenu",
       "tab.close",
       "tab.next",
       "tab.prev",

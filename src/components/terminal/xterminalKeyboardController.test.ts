@@ -250,6 +250,28 @@ describe("installXTerminalKeyboardController IME Backspace routing", () => {
     expect(writeClipboardText).toHaveBeenCalledWith("selected output");
   });
 
+  it("reserves the new session menu shortcut, including custom bindings", () => {
+    for (const [keybindings, key, code, shiftKey] of [
+      [{}, "O", "KeyO", true],
+      [{ "tab.openNewSessionMenu": "ctrl+alt+p" }, "p", "KeyP", false],
+    ] as const) {
+      const harness = createHarness("application", "SSH", keybindings);
+      const event = new KeyboardEvent("keydown", {
+        key,
+        code,
+        ctrlKey: true,
+        altKey: !shiftKey,
+        shiftKey,
+        bubbles: true,
+        cancelable: true,
+      });
+
+      expect(harness.keyHandler(event)).toBe(false);
+      expect(event.defaultPrevented).toBe(true);
+      expect(harness.sendRawInput).not.toHaveBeenCalled();
+    }
+  });
+
   it("copies a selection for plain Cmd+C on macOS", () => {
     const harness = createHarness("application", "SSH", {}, { isMacOS: true });
     vi.mocked(harness.terminal.hasSelection).mockReturnValue(true);

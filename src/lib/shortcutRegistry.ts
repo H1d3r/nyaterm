@@ -99,6 +99,12 @@ export const SHORTCUT_REGISTRY: ShortcutDefinition[] = [
     defaultKeys: "ctrl+shift+n, meta+shift+n",
   },
   {
+    id: "tab.openNewSessionMenu",
+    category: "tab",
+    labelKey: "settings.shortcutLabels.openNewSessionMenu",
+    defaultKeys: "ctrl+shift+o, meta+shift+o",
+  },
+  {
     id: "tab.temporarySshLink",
     category: "tab",
     labelKey: "settings.shortcutLabels.temporarySshLink",
