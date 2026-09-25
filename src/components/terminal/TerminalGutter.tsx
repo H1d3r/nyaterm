@@ -21,6 +21,8 @@ interface GutterLine {
 
 interface GutterLayout {
   lines: GutterLine[];
+  maxLineNumberDigits: number;
+  sessionId?: string;
   rowHeight: number;
   topPadding: number;
   fontFamily: string;
@@ -127,6 +129,8 @@ export default function TerminalGutter({
 
   const [layout, setLayout] = useState<GutterLayout>({
     lines: [],
+    maxLineNumberDigits: 1,
+    sessionId,
     rowHeight: 18,
     topPadding: 0,
     fontFamily: "inherit",
@@ -198,14 +202,24 @@ export default function TerminalGutter({
       });
     }
 
-    setLayout({
+    const visibleLineNumberDigits = nextLines.reduce(
+      (max, line) => Math.max(max, line.lineNumber.length),
+      1,
+    );
+
+    setLayout((previous) => ({
       lines: nextLines,
+      maxLineNumberDigits:
+        previous.sessionId === sessionId
+          ? Math.max(previous.maxLineNumberDigits, visibleLineNumberDigits)
+          : visibleLineNumberDigits,
+      sessionId,
       rowHeight,
       topPadding,
       fontFamily: String(terminal.options.fontFamily ?? "inherit"),
       fontSize,
       cellWidth,
-    });
+    }));
   }, [
     suspended,
     terminalRef,
@@ -214,6 +228,7 @@ export default function TerminalGutter({
     showLineNumbers,
     showTimestamps,
     timestampFormat,
+    sessionId,
   ]);
 
   const scheduleUpdate = useCallback(() => {
@@ -301,12 +316,8 @@ export default function TerminalGutter({
     return null;
   }
 
-  const maxVisibleLineNumber = layout.lines.reduce((max, line) => {
-    const value = Number(line.lineNumber);
-    return Number.isFinite(value) ? Math.max(max, value) : max;
-  }, 1);
   const lineNumWidth = showLineNumbers
-    ? Math.max(Math.ceil(layout.cellWidth * String(maxVisibleLineNumber).length) + 2, 24)
+    ? Math.max(Math.ceil(layout.cellWidth * layout.maxLineNumberDigits) + 2, 24)
     : 0;
   const timestampTemplate = formatTimestamp(TIMESTAMP_WIDTH_SAMPLE_MS, timestampFormat);
   const tsWidth = showTimestamps ? Math.ceil(layout.cellWidth * timestampTemplate.length) + 2 : 0;
