@@ -36,6 +36,11 @@ pub struct StartRecordingRequest {
 }
 
 #[tauri::command]
+pub fn get_default_local_shell() -> String {
+    core::default_local_shell_path()
+}
+
+#[tauri::command]
 pub async fn create_ssh_session(
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
