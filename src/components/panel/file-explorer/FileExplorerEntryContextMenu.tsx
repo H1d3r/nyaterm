@@ -15,6 +15,7 @@ import {
   MdEdit,
   MdFileOpen,
   MdFolderCopy,
+  MdFolderOpen,
   MdInfo,
   MdKeyboardArrowRight,
   MdKeyboardDoubleArrowRight,
@@ -24,6 +25,7 @@ import {
   MdOpenInNew,
   MdRefresh,
   MdSend,
+  MdTerminal,
   MdUpload,
   MdVisibility,
 } from "react-icons/md";
@@ -444,7 +446,7 @@ export default function FileExplorerEntryContextMenu({
               <ContextMenuSeparator />
               <ContextMenuSub>
                 <ContextMenuSubTrigger>
-                  <MdKeyboardReturn className="text-[0.875rem] text-muted-foreground mr-2" />
+                  <MdTerminal className="text-[0.875rem] text-muted-foreground mr-2" />
                   {t("fileExplorer.cmTerminal")}
                 </ContextMenuSubTrigger>
                 <ContextMenuSubContent>
@@ -454,9 +456,11 @@ export default function FileExplorerEntryContextMenu({
                     onOpenDirectoryInNewTerminal && (
                       <>
                         <ContextMenuItem onClick={() => onEnterDirectoryInTerminal(target)}>
+                          <MdFolderOpen className="text-[0.875rem] text-muted-foreground mr-2" />
                           {t("fileExplorer.cmEnterDirectory")}
                         </ContextMenuItem>
                         <ContextMenuItem onClick={() => onOpenDirectoryInNewTerminal(target)}>
+                          <MdOpenInNew className="text-[0.875rem] text-muted-foreground mr-2" />
                           {t("fileExplorer.cmOpenDirectoryNewTerminal")}
                         </ContextMenuItem>
                         <ContextMenuSeparator />

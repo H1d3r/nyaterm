@@ -29,12 +29,15 @@ import {
   MdContentCopy,
   MdCreateNewFolder,
   MdDriveFolderUpload,
+  MdFolderOpen,
   MdFolderOff,
   MdInfo,
   MdLink,
   MdNoteAdd,
+  MdOpenInNew,
   MdRefresh,
   MdSyncLock,
+  MdTerminal,
   MdUpload,
 } from "react-icons/md";
 import { PiColumnsPlusRightBold } from "react-icons/pi";
@@ -4520,18 +4523,20 @@ function FileExplorerPane({
             {terminalInputEnabled ? (
               <ContextMenuSub>
                 <ContextMenuSubTrigger>
-                  <LuClipboardPaste className="mr-2 h-4 w-4" />
+                  <MdTerminal className="mr-2 h-4 w-4" />
                   {t("fileExplorer.cmTerminal")}
                 </ContextMenuSubTrigger>
                 <ContextMenuSubContent>
                   <ContextMenuItem
                     onClick={() => void enterDirectoryInTerminal(currentPath)}
                   >
+                    <MdFolderOpen className="mr-2 h-4 w-4" />
                     {t("fileExplorer.cmEnterDirectory")}
                   </ContextMenuItem>
                   <ContextMenuItem
                     onClick={() => openDirectoryInNewTerminal(currentPath)}
                   >
+                    <MdOpenInNew className="mr-2 h-4 w-4" />
                     {t("fileExplorer.cmOpenDirectoryNewTerminal")}
                   </ContextMenuItem>
                   <ContextMenuSeparator />
