@@ -4,9 +4,9 @@
   "version": "1.2.11",
   "identifier": "com.kang.nyaterm",
   "build": {
-    "beforeDevCommand": "pnpm build:mcp-sidecar && pnpm dev",
+    "beforeDevCommand": "pnpm prepare:conpty && pnpm build:mcp-sidecar && pnpm dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "pnpm build",
+    "beforeBuildCommand": "pnpm prepare:conpty && pnpm build",
     "frontendDist": "../dist"
   },
   "app": {

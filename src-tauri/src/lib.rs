@@ -40,6 +40,8 @@ pub fn run() {
     platform::prepare_appimage_wayland_backend();
     portable_updater::schedule_cleanup_from_environment();
     let runtime = runtime::resolve().expect("failed to resolve runtime paths");
+    #[cfg(windows)]
+    platform::windows_conpty::configure(&runtime);
     runtime::prepare_webview_environment(&runtime);
 
     let session_manager = Arc::new(SessionManager::new());

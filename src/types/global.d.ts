@@ -42,6 +42,14 @@ export interface AppSupportInfo {
   os: string;
   architecture: string;
   runtime: "portable" | "installed";
+  conpty?: {
+    available: boolean;
+    activeBundled: number;
+    activeSystem: number;
+    lastUsed: "bundled" | "system" | null;
+    fallback: boolean;
+    version: string;
+  };
 }
 
 /** AI Agent command execution wrapper profile. */
