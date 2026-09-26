@@ -1865,6 +1865,7 @@ export interface FileExplorerProps {
   activeConnectionId?: string | null;
   activeSessionName?: string | null;
   terminalInputEnabled?: boolean;
+  onOpenDirectoryInNewTerminal?: (sessionId: string, path: string) => void;
 }
 
 export interface WebdavSyncSettings {

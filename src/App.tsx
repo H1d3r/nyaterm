@@ -59,8 +59,10 @@ import {
   sendStartupCommandToSession,
 } from "./lib/appSessionFactory";
 import {
+  buildDirectoryChangeCommand,
   buildReconnectCwdStartupCommand,
   carryOverSessionCwd,
+  isTerminalDirectoryPath,
 } from "./lib/terminalSessionCwd";
 import {
   buildPanelOpenUpdate,
@@ -148,16 +150,13 @@ import {
   collectSessionPanes,
   findPaneBySessionId,
   findSessionPaneById,
+  findSessionPaneBySessionId,
   findTabBySessionId,
   getActivePane,
   getActiveSessionTabDisplayName,
   getReleasedSessionIds,
 } from "./lib/workspaceTabs";
-import {
-  getDynamicTitle,
-  startDynamicTitles,
-  useDynamicTitles,
-} from "./lib/dynamicTabTitles";
+import { getDynamicTitle, startDynamicTitles, useDynamicTitles } from "./lib/dynamicTabTitles";
 import type {
   AppSettings,
   AssetMetadata,
@@ -2346,8 +2345,13 @@ function App() {
   // --- Tab context-menu callbacks ---
 
   const handleDuplicateSession = useCallback(
-    async (tab: Tab, startupCommand?: StartupCommandRequest) => {
-      const pane = getActivePane(tab);
+    async (
+      tab: Tab,
+      startupCommand?: StartupCommandRequest,
+      sourcePane?: SessionPane,
+      workingDir?: string,
+    ) => {
+      const pane = sourcePane ?? getActivePane(tab);
       if (!canCreateSessionFromPane(pane)) return;
       if (startupCommand && isSftpOnlyPane(pane, liveSessionsById)) return;
 
@@ -2368,7 +2372,12 @@ function App() {
           current ? insertTabAfterInLeaf(current, tab.id, tabId, tabId) : current,
         );
         try {
-          const sessionId = await createSessionForPane(pane, createRequestId, startupCommand);
+          const sessionId = await createSessionForPane(
+            pane,
+            createRequestId,
+            startupCommand,
+            workingDir,
+          );
           if (!hasTab(tabId)) {
             await closeStaleCreatedSession(sessionId);
             return;
@@ -3366,9 +3375,59 @@ function App() {
     activeRemoteStatsEnabled,
     uiConfig.remote_stats_interval ?? 3,
   );
-  const networkHistoryStore = useNetworkHistory(
-    remoteStats.sessionId,
-    remoteStats.stats,
+  const networkHistoryStore = useNetworkHistory(remoteStats.sessionId, remoteStats.stats);
+
+  const handleOpenDirectoryInNewTerminal = useCallback(
+    (sessionId: string, path: string) => {
+      const source = tabs
+        .map((tab) => ({
+          tab,
+          pane: findSessionPaneBySessionId(tab.root, sessionId),
+        }))
+        .find(({ pane }) => pane?.paneKind === "terminal");
+      const tab = source?.tab;
+      const pane = source?.pane;
+      const session = liveSessionsById?.get(sessionId);
+      if (
+        !tab ||
+        !pane ||
+        pane.paneKind !== "terminal" ||
+        !session?.connected ||
+        isSftpOnlyPane(pane, liveSessionsById) ||
+        (pane.type !== "SSH" && pane.type !== "Local")
+      ) {
+        toast.error(t("fileExplorer.directoryTerminalUnavailable"));
+        return;
+      }
+      if (pane.type === "Local") {
+        if (!isTerminalDirectoryPath(path)) {
+          toast.error(t("fileExplorer.directoryTerminalInvalidPath"));
+          return;
+        }
+        void handleDuplicateSession(tab, undefined, pane, path);
+        return;
+      }
+      const command = buildDirectoryChangeCommand(path, "posix");
+      if (!command) {
+        toast.error(t("fileExplorer.directoryTerminalInvalidPath"));
+        return;
+      }
+      void handleDuplicateSession(
+        tab,
+        {
+          command,
+          delayMs: appSettings.interaction.duplicate_session_command_delay_ms,
+        },
+        pane,
+      );
+    },
+    [
+      appSettings.interaction.duplicate_session_command_delay_ms,
+      handleDuplicateSession,
+      liveSessionsById,
+      t,
+      tabs,
+    ],
   );
   const headerStatusMode = normalizeHeaderStatusMode(uiConfig.header_status_mode);
   const headerStatusVisible = uiConfig.header_status_visible !== false;
@@ -3822,6 +3881,7 @@ function App() {
         onSessionDisconnect={handleDisconnectSessionById}
         canReconnect={canReconnectSessionById}
         onCommandSend={handleHistoryCommand}
+        onOpenDirectoryInNewTerminal={handleOpenDirectoryInNewTerminal}
         onToggleSessionRecording={handleToggleSessionRecording}
         onSaveSessionTranscript={handleSaveSessionTranscript}
       />
@@ -3843,6 +3903,7 @@ function App() {
       handleDisconnectSessionById,
       handleEditConnection,
       handleHistoryCommand,
+      handleOpenDirectoryInNewTerminal,
       handleNewSession,
       handleOpenTemporarySshLink,
       handleReconnectSessionById,

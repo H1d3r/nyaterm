@@ -191,12 +191,14 @@ export function createSessionForPane(
   >,
   createRequestId?: string,
   startupCommand?: StartupCommandRequest,
+  workingDir?: string,
 ) {
   switch (pane.type) {
     case "Local":
       return invoke<string>("create_local_session", {
         connectionId: pane.connectionId || null,
         createRequestId,
+        ...(workingDir === undefined ? {} : { workingDir }),
       });
     case "Telnet":
       if (pane.connectionId) {

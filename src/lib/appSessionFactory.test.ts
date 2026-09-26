@@ -43,4 +43,17 @@ describe("SSH runtime mode creation", () => {
       runtimeMode: "sftp",
     });
   });
+
+  it("passes an explicit directory to a duplicated saved local terminal", async () => {
+    const pane = {
+      type: "Local",
+      connectionId: "local-1",
+    } as TerminalSessionPane;
+    await createSessionForPane(pane, "request-local", undefined, "D:\\My Files");
+    expect(invokeMock).toHaveBeenCalledWith("create_local_session", {
+      connectionId: "local-1",
+      createRequestId: "request-local",
+      workingDir: "D:\\My Files",
+    });
+  });
 });
